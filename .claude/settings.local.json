@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(npm run:*)",
+      "Bash(mkdir -p \"/Users/elias/Documents/Projet professionnel/Claudecode/Casino/public\")",
+      "Bash(mkdir -p \"/Users/elias/Documents/Projet professionnel/Claudecode/Casino/supabase\")",
+      "Bash(mkdir -p \"/Users/elias/Documents/Projet professionnel/Claudecode/Casino/src/lib\")"
+    ]
+  }
+}
