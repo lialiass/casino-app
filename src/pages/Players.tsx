@@ -228,6 +228,29 @@ export default function Players() {
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {/* Aperçu de la photo existante, plein cadre */}
+                {players.find(p => p.id === photoModal)?.photoUrl && (
+                  <div style={{
+                    width: '100%',
+                    aspectRatio: '1 / 1',
+                    borderRadius: 12,
+                    overflow: 'hidden',
+                    marginBottom: 4,
+                    background: 'var(--bg)',
+                  }}>
+                    <img
+                      src={players.find(p => p.id === photoModal)!.photoUrl}
+                      alt="Photo du joueur"
+                      style={{
+                        width: '100%',
+                        height: '100%',
+                        objectFit: 'cover',
+                        objectPosition: 'center',
+                        display: 'block',
+                      }}
+                    />
+                  </div>
+                )}
                 <button
                   className="btn btn-gold"
                   onClick={() => cameraInputRef.current?.click()}
