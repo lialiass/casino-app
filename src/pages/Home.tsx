@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router-dom'
+import Podium from '../components/Podium'
 import { useStore } from '../store'
 
 export default function Home() {
@@ -68,6 +69,8 @@ export default function Home() {
             Ajoutez au moins 2 joueurs pour démarrer une partie.
           </div>
         )}
+
+        <Podium />
       </div>
     </div>
   )
