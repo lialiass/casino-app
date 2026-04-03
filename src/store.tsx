@@ -15,12 +15,14 @@ interface AppContextType {
   isLoading: boolean;
   addPlayer: (name: string) => void;
   updatePlayer: (id: string, name: string, photoUrl?: string) => void;
-  deletePlayer: (id: string) => void;
+  deletePlayer: (id: string) => Promise<void>;
+  resetPlayers: () => Promise<void>;
   uploadPlayerPhoto: (playerId: string, file: File) => Promise<string | null>;
   createGame: (playerIds: string[], buyIn: number) => Game;
   addRebuy: (gameId: string, playerId: string) => void;
-  finishGame: (gameId: string, winnerId: string, secondId: string) => Game;
-  deleteGame: (gameId: string) => void;
+  finishGame: (gameId: string, winnerId: string, secondId: string, shareGains?: boolean) => Game;
+  deleteGame: (gameId: string) => Promise<void>;
+  updateGameDate: (gameId: string, newDate: string) => Promise<void>;
   getActiveGame: () => Game | undefined;
   getGameById: (id: string) => Game | undefined;
   getPlayerById: (id: string) => Player | undefined;
@@ -32,7 +34,16 @@ const AppContext = createContext<AppContextType | null>(null);
 function loadData(): AppData {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw) as AppData;
+    if (raw) {
+      const parsed = JSON.parse(raw) as AppData;
+      // Ne jamais restaurer une partie "in_progress" depuis le cache local au démarrage.
+      // Si Supabase est actif, fetchFromSupabase va de toute façon réécrire les games.
+      // Si Supabase n'est pas actif, on ne veut pas non plus réafficher une vieille partie.
+      return {
+        players: parsed.players ?? [],
+        games: (parsed.games ?? []).filter((g: { status: string }) => g.status !== 'in_progress'),
+      };
+    }
   } catch {}
   return { players: [], games: [] };
 }
@@ -76,8 +87,10 @@ function dbToGame(row: Record<string, unknown>): Game {
     pot: (row.pot as number | null) ?? undefined,
     players: (row.players as GamePlayer[]) ?? [],
     results: (row.results as GameResult[] | null) ?? undefined,
-  };
+    sharedWin: (row.shared_win as boolean | null) ?? undefined,
+  } as Game;
 }
+
 
 function gameToDb(g: Game): Record<string, unknown> {
   return {
@@ -90,6 +103,7 @@ function gameToDb(g: Game): Record<string, unknown> {
     pot: g.pot ?? null,
     players: g.players,
     results: g.results ?? null,
+    shared_win: g.sharedWin ?? null,
   };
 }
 
@@ -123,26 +137,54 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const skipNextSaveRef = useRef(false);
 
   // Fetch all data from Supabase
-  const fetchFromSupabase = useCallback(async () => {
+  // isInitialLoad=true : filtre les parties in_progress (on ne restaure pas une vieille session)
+  // isInitialLoad=false : mise à jour realtime, on garde tout
+  const fetchFromSupabase = useCallback(async (isInitialLoad = false) => {
     if (!supabase) return;
-    const [{ data: pRows }, { data: gRows }] = await Promise.all([
+    const [
+      { data: pRows, error: pErr },
+      { data: gRows, error: gErr },
+    ] = await Promise.all([
       supabase.from('players').select('*'),
       supabase.from('games').select('*'),
     ]);
-    if (!pRows || !gRows) return;
-    const newData: AppData = {
-      players: pRows.map(r => dbToPlayer(r as Record<string, unknown>)),
-      games: gRows.map(r => dbToGame(r as Record<string, unknown>)),
-    };
+    if (pErr) console.error('fetchFromSupabase players error:', pErr);
+    if (gErr) console.error('fetchFromSupabase games error:', gErr);
+    if (!pRows && !gRows) return;
     skipNextSaveRef.current = true;
-    setData(newData);
-    saveData(newData);
+    setData(prev => {
+      // Pour les joueurs : Supabase est la source de vérité si elle retourne des données.
+      // Si Supabase retourne une liste vide et qu'on a des joueurs en local, on garde les locaux
+      // (protection contre un problème temporaire de RLS ou de connexion).
+      const players = (pRows && pRows.length > 0)
+        ? pRows.map(r => dbToPlayer(r as Record<string, unknown>))
+        : (pRows && pRows.length === 0 && prev.players.length > 0)
+          ? prev.players
+          : prev.players;
+      // Pour les games : au chargement initial on ne restaure jamais une partie in_progress
+      // (évite l'affichage fantôme d'une ancienne session).
+      // En realtime, on accepte tout (une partie peut être en cours dans la session active).
+      let games: Game[];
+      if (gRows) {
+        const mapped = gRows.map(r => dbToGame(r as Record<string, unknown>));
+        if (isInitialLoad) {
+          games = mapped.filter(g => g.status !== 'in_progress');
+        } else {
+          games = mapped;
+        }
+      } else {
+        games = prev.games;
+      }
+      const newData: AppData = { players, games };
+      saveData(newData);
+      return newData;
+    });
   }, []);
 
   // Initial load from Supabase
   useEffect(() => {
     if (!supabase) return;
-    fetchFromSupabase().finally(() => setIsLoading(false));
+    fetchFromSupabase(true).finally(() => setIsLoading(false));
   }, [fetchFromSupabase]);
 
   // Realtime subscription
@@ -151,8 +193,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const client = supabase;
     const channel = client
       .channel('db-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, fetchFromSupabase)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'games' }, fetchFromSupabase)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, () => fetchFromSupabase(false))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'games' }, () => fetchFromSupabase(false))
       .subscribe();
     return () => { client.removeChannel(channel); };
   }, [fetchFromSupabase]);
@@ -173,7 +215,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       createdAt: new Date().toISOString(),
     };
     setData(prev => ({ ...prev, players: [...prev.players, player] }));
-    supabase?.from('players').insert(playerToDb(player));
+    if (supabase) {
+      supabase.from('players').insert(playerToDb(player))
+        .then(({ error }) => {
+          if (error) {
+            console.error('addPlayer Supabase error:', error);
+            // En cas d'échec, on retire le joueur fantôme du state local
+            // pour éviter qu'il disparaisse au prochain fetch Supabase
+            setData(prev => ({ ...prev, players: prev.players.filter(p => p.id !== player.id) }));
+          }
+        });
+    }
   }, []);
 
   const updatePlayer = useCallback((id: string, name: string, photoUrl?: string) => {
@@ -191,9 +243,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }).eq('id', id);
   }, []);
 
-  const deletePlayer = useCallback((id: string) => {
+  const deletePlayer = useCallback(async (id: string): Promise<void> => {
+    if (supabase) {
+      const { error } = await supabase.from('players').delete().eq('id', id);
+      if (error) {
+        console.error('deletePlayer Supabase error:', error);
+        return; // Ne pas modifier le state local si Supabase a échoué
+      }
+    }
     setData(prev => ({ ...prev, players: prev.players.filter(p => p.id !== id) }));
-    supabase?.from('players').delete().eq('id', id);
+  }, []);
+
+  const resetPlayers = useCallback(async (): Promise<void> => {
+    if (supabase) {
+      // Supprimer tous les joueurs de Supabase un par un pour respecter les contraintes RLS
+      const { data: rows, error: fetchErr } = await supabase.from('players').select('id');
+      if (fetchErr) {
+        console.error('resetPlayers fetch error:', fetchErr);
+        return;
+      }
+      if (rows && rows.length > 0) {
+        const ids = rows.map((r: Record<string, unknown>) => r.id as string);
+        const { error: delErr } = await supabase.from('players').delete().in('id', ids);
+        if (delErr) {
+          console.error('resetPlayers delete error:', delErr);
+          return;
+        }
+      }
+    }
+    setData(prev => ({ ...prev, players: [] }));
   }, []);
 
   const uploadPlayerPhoto = useCallback(async (playerId: string, file: File): Promise<string | null> => {
@@ -232,7 +310,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       status: 'in_progress',
     };
     setData(prev => ({ ...prev, games: [...prev.games, game] }));
-    supabase?.from('games').insert(gameToDb(game));
+    if (supabase) {
+      supabase.from('games').insert(gameToDb(game))
+        .then(({ error }) => { if (error) console.error('createGame Supabase error:', error); });
+    }
     return game;
   }, []);
 
@@ -257,24 +338,65 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const finishGame = useCallback((gameId: string, winnerId: string, secondId: string): Game => {
-    let finishedGame!: Game;
-    setData(prev => {
-      const game = prev.games.find(g => g.id === gameId);
-      if (!game) return prev;
-      const pot = game.players.reduce((sum, p) => sum + game.buyIn * (1 + p.rebuys), 0);
-      const otherLosses = game.players
+  const finishGame = useCallback((
+    gameId: string,
+    winnerId: string,
+    secondId: string,
+    shareGains = false,
+  ): Game => {
+    const game = data.games.find(g => g.id === gameId);
+    if (!game) throw new Error(`Game ${gameId} not found`);
+
+    const pot = game.players.reduce((sum, p) => sum + game.buyIn * (1 + p.rebuys), 0);
+
+    let results: GameResult[];
+    let sharedWin: boolean | undefined;
+
+    if (shareGains) {
+      // ── MODE PARTAGE (2 finalistes seulement) ──────────────────────────────
+      // Formule : gain_i = S_i + (P - S_winner - S_second) / 2
+      // Les "others" ont déjà perdu leur mise, elle est dans le pot.
+      // Le reste après remboursement des 2 finalistes est partagé à parts égales.
+      const winnerGp = game.players.find(p => p.playerId === winnerId)!;
+      const secondGp  = game.players.find(p => p.playerId === secondId)!;
+      const sWinner   = game.buyIn * (1 + winnerGp.rebuys);
+      const sSecond   = game.buyIn * (1 + secondGp.rebuys);
+      // Pertes des autres joueurs : ils ont déjà perdu leur mise, elle est dans le pot.
+      const othersTotal = game.players
         .filter(p => p.playerId !== winnerId && p.playerId !== secondId)
         .reduce((sum, p) => sum + game.buyIn * (1 + p.rebuys), 0);
-      const results: GameResult[] = game.players.map(p => {
+      // Reste à partager entre les 2 finalistes = pot - leurs mises remboursées
+      const remainder = pot - sWinner - sSecond; // = othersTotal
+      const shareEach = remainder / 2;           // part égale du bénéfice
+
+      results = game.players.map(p => {
+        const totalEngaged = game.buyIn * (1 + p.rebuys);
+        if (p.playerId === winnerId) {
+          return { playerId: p.playerId, totalEngaged, netResult: shareEach, rank: 'shared' as const };
+        } else if (p.playerId === secondId) {
+          return { playerId: p.playerId, totalEngaged, netResult: shareEach, rank: 'shared' as const };
+        } else {
+          return { playerId: p.playerId, totalEngaged, netResult: -totalEngaged, rank: 'other' as const };
+        }
+      });
+      sharedWin = true;
+    } else {
+      // ── MODE STANDARD ──────────────────────────────────────────────────────
+      const secondPlayer    = game.players.find(p => p.playerId === secondId);
+      const secondRebuyCost = secondPlayer ? game.buyIn * secondPlayer.rebuys : 0;
+      const otherLosses     = game.players
+        .filter(p => p.playerId !== winnerId && p.playerId !== secondId)
+        .reduce((sum, p) => sum + game.buyIn * (1 + p.rebuys), 0);
+
+      results = game.players.map(p => {
         const totalEngaged = game.buyIn * (1 + p.rebuys);
         let netResult: number;
         let rank: GameResult['rank'];
         if (p.playerId === winnerId) {
-          netResult = otherLosses;
+          netResult = otherLosses + secondRebuyCost;
           rank = 'winner';
         } else if (p.playerId === secondId) {
-          netResult = 0;
+          netResult = -secondRebuyCost;
           rank = 'second';
         } else {
           netResult = -totalEngaged;
@@ -282,20 +404,58 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
         return { playerId: p.playerId, totalEngaged, netResult, rank };
       });
-      finishedGame = { ...game, status: 'finished', winnerId, secondId, results, pot };
-      return { ...prev, games: prev.games.map(g => (g.id === gameId ? finishedGame : g)) };
-    });
-    supabase?.from('games').update(gameToDb(finishedGame)).eq('id', gameId);
+      sharedWin = undefined;
+    }
+
+    const finishedGame: Game = {
+      ...game,
+      status: 'finished',
+      winnerId,
+      secondId,
+      results,
+      pot,
+      ...(sharedWin ? { sharedWin: true } : {}),
+    };
+
+    setData(prev => ({
+      ...prev,
+      games: prev.games.map(g => (g.id === gameId ? finishedGame : g)),
+    }));
+
+    if (supabase) {
+      supabase.from('games').update(gameToDb(finishedGame)).eq('id', gameId)
+        .then(({ error }) => { if (error) console.error('finishGame Supabase error:', error); });
+    }
     return finishedGame;
+  }, [data.games]);
+
+  const updateGameDate = useCallback(async (gameId: string, newDate: string): Promise<void> => {
+    if (supabase) {
+      const { error } = await supabase.from('games').update({ date: newDate }).eq('id', gameId);
+      if (error) {
+        console.error('updateGameDate Supabase error:', error);
+        return;
+      }
+    }
+    setData(prev => ({
+      ...prev,
+      games: prev.games.map(g => g.id === gameId ? { ...g, date: newDate } : g),
+    }));
   }, []);
 
-  const deleteGame = useCallback((gameId: string) => {
+  const deleteGame = useCallback(async (gameId: string): Promise<void> => {
+    if (supabase) {
+      const { error } = await supabase.from('games').delete().eq('id', gameId);
+      if (error) {
+        console.error('deleteGame Supabase error:', error);
+        return; // Ne pas modifier le state local si Supabase a échoué
+      }
+    }
     setData(prev => ({ ...prev, games: prev.games.filter(g => g.id !== gameId) }));
-    supabase?.from('games').delete().eq('id', gameId);
   }, []);
 
   const getActiveGame = useCallback((): Game | undefined => {
-    return data.games.find(g => g.status === 'in_progress');
+    return data.games.find(g => g.status === 'in_progress' && !g.results && !g.winnerId);
   }, [data.games]);
 
   const getGameById = useCallback(
@@ -320,7 +480,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (result) {
           netResult += result.netResult;
           totalEngaged += result.totalEngaged;
-          if (result.rank === 'winner') wins++;
+          if (result.rank === 'winner' || result.rank === 'shared') wins++;
           if (result.rank === 'second') seconds++;
         }
         if (gp) totalRebuys += gp.rebuys;
@@ -338,11 +498,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         addPlayer,
         updatePlayer,
         deletePlayer,
+        resetPlayers,
         uploadPlayerPhoto,
         createGame,
         addRebuy,
         finishGame,
         deleteGame,
+        updateGameDate,
         getActiveGame,
         getGameById,
         getPlayerById,

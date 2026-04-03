@@ -3,9 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store'
 
 export default function NewGame() {
-  const { players, createGame, getActiveGame } = useStore()
+  const { players, createGame } = useStore()
   const navigate = useNavigate()
-  const activeGame = getActiveGame()
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [buyIn, setBuyIn] = useState('5')
@@ -28,24 +27,6 @@ export default function NewGame() {
   }
 
   const getInitials = (name: string) => name.slice(0, 2).toUpperCase()
-
-  if (activeGame) {
-    return (
-      <div style={{ minHeight: '100vh', paddingBottom: 80 }}>
-        <div className="header">
-          <h1>♠ Nouvelle partie</h1>
-        </div>
-        <div className="page">
-          <div className="alert alert-warning">
-            Une partie est déjà en cours. Terminez-la avant d'en créer une nouvelle.
-          </div>
-          <button className="btn btn-green" onClick={() => navigate(`/game/${activeGame.id}`)}>
-            ▶ Reprendre la partie en cours
-          </button>
-        </div>
-      </div>
-    )
-  }
 
   return (
     <div style={{ minHeight: '100vh', paddingBottom: 80 }}>
@@ -90,7 +71,16 @@ export default function NewGame() {
                 className={`player-item checkbox-player${isSelected ? ' selected' : ''}`}
                 onClick={() => togglePlayer(player.id)}
               >
-                <div className="player-avatar">{getInitials(player.name)}</div>
+                <div
+                  className="player-avatar"
+                  style={player.photoUrl ? {
+                    backgroundImage: `url(${player.photoUrl})`,
+                    backgroundSize: 'cover',
+                    backgroundPosition: 'center',
+                  } : undefined}
+                >
+                  {!player.photoUrl && getInitials(player.name)}
+                </div>
                 <span className="player-name">{player.name}</span>
                 <div className="checkmark">{isSelected ? '✓' : ''}</div>
               </div>

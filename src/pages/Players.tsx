@@ -3,12 +3,14 @@ import { useStore } from '../store'
 import { hasSupabase } from '../lib/supabase'
 
 export default function Players() {
-  const { players, addPlayer, updatePlayer, deletePlayer, uploadPlayerPhoto, games } = useStore()
+  const { players, addPlayer, updatePlayer, deletePlayer, resetPlayers, uploadPlayerPhoto, games } = useStore()
   const [newName, setNewName] = useState('')
   const [editId, setEditId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
   const [photoModal, setPhotoModal] = useState<string | null>(null) // playerId
   const [uploading, setUploading] = useState(false)
+  const [deleting, setDeleting] = useState<string | null>(null) // playerId en cours de suppression
+  const [resetting, setResetting] = useState(false)
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const galleryInputRef = useRef<HTMLInputElement>(null)
 
@@ -31,7 +33,7 @@ export default function Players() {
     setEditName('')
   }
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     const isInGame = games.some(
       g => g.status === 'in_progress' && g.players.some(p => p.playerId === id)
     )
@@ -39,9 +41,18 @@ export default function Players() {
       alert('Ce joueur est dans une partie en cours.')
       return
     }
-    if (confirm('Supprimer ce joueur ?')) {
-      deletePlayer(id)
-    }
+    const player = players.find(p => p.id === id)
+    if (!confirm(`Supprimer ${player?.name ?? 'ce joueur'} ? Cette action est irréversible.`)) return
+    setDeleting(id)
+    await deletePlayer(id)
+    setDeleting(null)
+  }
+
+  const handleResetPlayers = async () => {
+    if (!confirm('Supprimer tous les joueurs ? Cette action est irréversible.')) return
+    setResetting(true)
+    await resetPlayers()
+    setResetting(false)
   }
 
   const handlePhotoFile = async (file: File | null | undefined) => {
@@ -168,14 +179,28 @@ export default function Players() {
                       className="btn btn-ghost btn-sm"
                       style={{ borderColor: '#ef444440', color: 'var(--red)' }}
                       onClick={() => handleDelete(player.id)}
+                      disabled={deleting === player.id}
                     >
-                      🗑️
+                      {deleting === player.id ? '…' : '🗑️'}
                     </button>
                   </>
                 )}
               </div>
             </div>
           ))
+        )}
+        {/* Reset all players */}
+        {players.length > 0 && (
+          <div style={{ marginTop: 32, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+            <button
+              className="btn btn-ghost"
+              style={{ color: 'var(--red)', borderColor: '#ef444440' }}
+              onClick={handleResetPlayers}
+              disabled={resetting}
+            >
+              {resetting ? 'Suppression…' : '🗑️ Réinitialiser tous les joueurs'}
+            </button>
+          </div>
         )}
       </div>
 

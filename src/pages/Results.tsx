@@ -74,12 +74,14 @@ export default function Results() {
 
   const rankEmoji = (rank: GameResult['rank']) => {
     if (rank === 'winner') return '🥇'
+    if (rank === 'shared') return '🤝'
     if (rank === 'second') return '🥈'
     return '❌'
   }
 
   const rankClass = (rank: GameResult['rank']) => {
     if (rank === 'winner') return 'result-card winner'
+    if (rank === 'shared') return 'result-card winner' // même style que gagnant
     if (rank === 'second') return 'result-card second'
     return 'result-card other'
   }
@@ -100,7 +102,9 @@ export default function Results() {
       <div className="page">
         {/* Summary */}
         <div className="pot-display">
-          <div className="pot-label">🏆 Partie terminée</div>
+          <div className="pot-label">
+            {game.sharedWin ? '🤝 Gains partagés' : '🏆 Partie terminée'}
+          </div>
           <div className="pot-amount">{(game.pot || 0).toFixed(2)}€</div>
           <div className="pot-sub">{formatDate(game.date)} · {game.players.length} joueurs · Mise {game.buyIn}€</div>
         </div>
@@ -114,13 +118,27 @@ export default function Results() {
           return (
             <div key={result.playerId} className={rankClass(result.rank)}>
               <div className="result-rank">{rankEmoji(result.rank)}</div>
+              {/* Photo du joueur */}
+              <div style={{
+                width: 56, height: 56, borderRadius: '50%', margin: '0 auto 8px',
+                background: 'var(--bg-felt)',
+                border: '2px solid var(--border-gold)',
+                backgroundImage: player.photoUrl ? `url(${player.photoUrl})` : undefined,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: '1.3rem', fontWeight: 700, color: 'var(--gold)',
+              }}>
+                {!player.photoUrl && player.name.slice(0, 2).toUpperCase()}
+              </div>
               <div className="result-name">{player.name}</div>
               <div className={amountClass(result.netResult)}>
-                {result.netResult > 0 ? '+' : ''}{result.netResult.toFixed(2)}€
+                {result.netResult > 0 ? '+' : result.netResult < 0 ? '-' : ''}{Math.abs(result.netResult).toFixed(2)}€
               </div>
               <div className="result-detail">
                 Engagé : {result.totalEngaged.toFixed(2)}€
-                {result.rank === 'second' && ' · Récupère sa mise'}
+                {result.rank === 'second' && ` · Récupère ${(result.totalEngaged + result.netResult).toFixed(2)}€`}
+                {result.rank === 'shared' && ` · Récupère ${(result.totalEngaged + result.netResult).toFixed(2)}€`}
               </div>
             </div>
           )

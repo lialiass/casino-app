@@ -15,11 +15,13 @@ function GameDetail({ game, onClose }: { game: Game; onClose: () => void }) {
   const { getPlayerById, deleteGame } = useStore()
   const navigate = useNavigate()
 
-  const handleDelete = () => {
-    if (confirm('Supprimer cette partie de l\'historique ?')) {
-      deleteGame(game.id)
-      onClose()
-    }
+  const [deleting, setDeleting] = useState(false)
+
+  const handleDelete = async () => {
+    if (!confirm('Supprimer cette partie de l\'historique ? Cette action est irréversible.')) return
+    setDeleting(true)
+    await deleteGame(game.id)
+    onClose()
   }
 
   const sortedResults = game.results ? [...game.results].sort((a, b) => b.netResult - a.netResult) : []
@@ -98,8 +100,9 @@ function GameDetail({ game, onClose }: { game: Game; onClose: () => void }) {
             className="btn btn-ghost"
             style={{ color: 'var(--red)', borderColor: '#ef444440' }}
             onClick={handleDelete}
+            disabled={deleting}
           >
-            🗑️ Supprimer
+            {deleting ? 'Suppression…' : '🗑️ Supprimer'}
           </button>
         </div>
       </div>

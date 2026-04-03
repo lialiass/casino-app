@@ -127,9 +127,12 @@ function PlayerRankRow({
             height: 36,
             fontSize: '0.85rem',
             borderColor: rank === 1 ? 'var(--gold)' : 'var(--border)',
+            backgroundImage: stats.player.photoUrl ? `url(${stats.player.photoUrl})` : undefined,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
           }}
         >
-          {getInitials(stats.player.name)}
+          {!stats.player.photoUrl && getInitials(stats.player.name)}
         </div>
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>{stats.player.name}</div>
