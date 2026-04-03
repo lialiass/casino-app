@@ -454,14 +454,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       sharedWin = undefined;
     }
 
+    // Construire finishedGame sans propager un ancien sharedWin via ...game.
+    // On desctructure explicitement pour controler chaque champ.
+    const { sharedWin: _ignored, ...gameBase } = game as Game & { sharedWin?: boolean };
     const finishedGame: Game = {
-      ...game,
+      ...gameBase,
       status: 'finished',
       winnerId,
       secondId,
       results,
       pot,
-      ...(sharedWin ? { sharedWin: true } : {}),
+      ...(sharedWin === true ? { sharedWin: true } : {}),
     };
 
     setData(prev => ({
@@ -472,8 +475,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (supabase) {
       pendingGameWritesRef.current.add(gameId);
       try {
-        const { error } = await supabase.from('games').update(gameToDb(finishedGame)).eq('id', gameId);
-        if (error) console.error('finishGame Supabase error:', error);
+        const payload = gameToDb(finishedGame);
+        const { error } = await supabase.from('games').update(payload).eq('id', gameId);
+        if (error) {
+          console.error('finishGame Supabase error:', error);
+          // Fallback: si l'erreur concerne shared_win (colonne manquante),
+          // on retente sans ce champ pour ne pas bloquer la persistance.
+          const isColumnError = error.message?.includes('shared_win') ||
+            error.code === '42703'; // PostgreSQL: undefined_column
+          if (isColumnError) {
+            console.warn('finishGame: retrying without shared_win (run migration to fix permanently)');
+            const { shared_win: _dropped, ...payloadWithout } = payload as Record<string, unknown>;
+            const { error: error2 } = await supabase.from('games').update(payloadWithout).eq('id', gameId);
+            if (error2) console.error('finishGame fallback Supabase error:', error2);
+          }
+        }
       } finally {
         pendingGameWritesRef.current.delete(gameId);
       }
