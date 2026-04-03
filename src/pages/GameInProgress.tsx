@@ -38,19 +38,19 @@ export default function GameInProgress() {
 
   const pot = game.players.reduce((sum, p) => sum + game.buyIn * (1 + p.rebuys), 0)
 
-  const handleFinish = () => {
+  const handleFinish = async () => {
     if (!winnerId || !secondId) return
     if (winnerId === secondId) return
-    finishGame(game.id, winnerId, secondId, shareGains)
+    await finishGame(game.id, winnerId, secondId, shareGains)
     navigate(`/results/${game.id}`, { replace: true })
   }
 
   // FIX: ne bloque plus sur players.length === 2
   // Utilise winnerId et secondId (les 2 finalistes sélectionnés) au lieu des 2 premiers joueurs
-  const handleFinishShared = () => {
+  const handleFinishShared = async () => {
     if (!winnerId || !secondId) return
     if (winnerId === secondId) return
-    finishGame(game.id, winnerId, secondId, true)
+    await finishGame(game.id, winnerId, secondId, true)
     navigate(`/results/${game.id}`, { replace: true })
   }
 

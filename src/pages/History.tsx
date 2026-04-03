@@ -12,16 +12,34 @@ function formatDate(iso: string) {
 }
 
 function GameDetail({ game, onClose }: { game: Game; onClose: () => void }) {
-  const { getPlayerById, deleteGame } = useStore()
+  const { getPlayerById, deleteGame, updateGameDate } = useStore()
   const navigate = useNavigate()
 
   const [deleting, setDeleting] = useState(false)
+  const [editingDate, setEditingDate] = useState(false)
+  const [dateValue, setDateValue] = useState(
+    // format YYYY-MM-DD pour <input type="date">
+    new Date(game.date).toISOString().slice(0, 10)
+  )
+  const [savingDate, setSavingDate] = useState(false)
 
   const handleDelete = async () => {
     if (!confirm('Supprimer cette partie de l\'historique ? Cette action est irréversible.')) return
     setDeleting(true)
     await deleteGame(game.id)
     onClose()
+  }
+
+  const handleSaveDate = async () => {
+    if (!dateValue) return
+    setSavingDate(true)
+    // On reconstruit un ISO string en preservant l'heure d'origine, seule la date change
+    const originalTime = new Date(game.date)
+    const [y, m, d] = dateValue.split('-').map(Number)
+    originalTime.setFullYear(y, m - 1, d)
+    await updateGameDate(game.id, originalTime.toISOString())
+    setSavingDate(false)
+    setEditingDate(false)
   }
 
   const sortedResults = game.results ? [...game.results].sort((a, b) => b.netResult - a.netResult) : []
@@ -52,10 +70,47 @@ function GameDetail({ game, onClose }: { game: Game; onClose: () => void }) {
         }}
       >
         <div className="row" style={{ marginBottom: 16 }}>
-          <div>
-            <div style={{ color: 'var(--gold)', fontWeight: 800, fontSize: '1.1rem' }}>
-              Partie du {formatDate(game.date)}
-            </div>
+          <div style={{ flex: 1 }}>
+            {editingDate ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                <input
+                  type="date"
+                  className="input"
+                  style={{ width: 'auto', padding: '4px 8px', fontSize: '0.9rem' }}
+                  value={dateValue}
+                  onChange={e => setDateValue(e.target.value)}
+                />
+                <button
+                  className="btn btn-green btn-sm"
+                  onClick={handleSaveDate}
+                  disabled={savingDate}
+                  style={{ width: 'auto' }}
+                >
+                  {savingDate ? '…' : '✓'}
+                </button>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => setEditingDate(false)}
+                  style={{ width: 'auto' }}
+                >
+                  ✕
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{ color: 'var(--gold)', fontWeight: 800, fontSize: '1.1rem' }}>
+                  Partie du {formatDate(game.date)}
+                </div>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => setEditingDate(true)}
+                  style={{ width: 'auto', fontSize: '0.7rem', padding: '2px 6px' }}
+                  title="Modifier la date"
+                >
+                  ✏️
+                </button>
+              </div>
+            )}
             <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
               Mise {game.buyIn}€ · Pot {(game.pot || 0).toFixed(2)}€ · {game.players.length} joueurs
             </div>

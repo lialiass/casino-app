@@ -18,9 +18,9 @@ interface AppContextType {
   deletePlayer: (id: string) => Promise<void>;
   resetPlayers: () => Promise<void>;
   uploadPlayerPhoto: (playerId: string, file: File) => Promise<string | null>;
-  createGame: (playerIds: string[], buyIn: number) => Game;
+  createGame: (playerIds: string[], buyIn: number) => Promise<Game>;
   addRebuy: (gameId: string, playerId: string) => void;
-  finishGame: (gameId: string, winnerId: string, secondId: string, shareGains?: boolean) => Game;
+  finishGame: (gameId: string, winnerId: string, secondId: string, shareGains?: boolean) => Promise<Game>;
   deleteGame: (gameId: string) => Promise<void>;
   updateGameDate: (gameId: string, newDate: string) => Promise<void>;
   getActiveGame: () => Game | undefined;
@@ -31,17 +31,25 @@ interface AppContextType {
 
 const AppContext = createContext<AppContextType | null>(null);
 
+// Une partie in_progress est considérée "fantôme" si elle date de plus de 24h
+const IN_PROGRESS_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+function isStaleInProgress(g: { status: string; date: string }): boolean {
+  if (g.status !== 'in_progress') return false;
+  return Date.now() - new Date(g.date).getTime() > IN_PROGRESS_MAX_AGE_MS;
+}
+
 function loadData(): AppData {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as AppData;
-      // Ne jamais restaurer une partie "in_progress" depuis le cache local au démarrage.
-      // Si Supabase est actif, fetchFromSupabase va de toute façon réécrire les games.
-      // Si Supabase n'est pas actif, on ne veut pas non plus réafficher une vieille partie.
+      // On ne restaure que les parties in_progress récentes (< 24h).
+      // Les parties fantômes (crash/abandon d'une vieille session) sont filtrées.
+      // Les parties récentes sont conservées pour survivre à un simple refresh.
       return {
         players: parsed.players ?? [],
-        games: (parsed.games ?? []).filter((g: { status: string }) => g.status !== 'in_progress'),
+        games: (parsed.games ?? []).filter((g: { status: string; date: string }) => !isStaleInProgress(g)),
       };
     }
   } catch {}
@@ -93,7 +101,7 @@ function dbToGame(row: Record<string, unknown>): Game {
 
 
 function gameToDb(g: Game): Record<string, unknown> {
-  return {
+  const row: Record<string, unknown> = {
     id: g.id,
     date: g.date,
     buy_in: g.buyIn,
@@ -103,8 +111,13 @@ function gameToDb(g: Game): Record<string, unknown> {
     pot: g.pot ?? null,
     players: g.players,
     results: g.results ?? null,
-    shared_win: g.sharedWin ?? null,
   };
+  // N'inclure shared_win que si explicitement defini.
+  // Evite l'erreur Supabase "column does not exist" sur les bases sans migration.
+  if (g.sharedWin !== undefined) {
+    row.shared_win = g.sharedWin;
+  }
+  return row;
 }
 
 // --- Image compression ---
@@ -135,6 +148,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [data, setData] = useState<AppData>(loadData);
   const [isLoading, setIsLoading] = useState(hasSupabase);
   const skipNextSaveRef = useRef(false);
+  // IDs des parties dont l'ecriture Supabase est en cours.
+  // Permet d'ignorer les events realtime declenchés par nos propres writes
+  // pour eviter qu'un fetch intermediaire ecrase le state local avant confirmation.
+  const pendingGameWritesRef = useRef<Set<string>>(new Set());
 
   // Fetch all data from Supabase
   // isInitialLoad=true : filtre les parties in_progress (on ne restaure pas une vieille session)
@@ -167,10 +184,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       let games: Game[];
       if (gRows) {
         const mapped = gRows.map(r => dbToGame(r as Record<string, unknown>));
+        let filtered: Game[];
         if (isInitialLoad) {
-          games = mapped.filter(g => g.status !== 'in_progress');
+          // On ne filtre que les parties in_progress trop vieilles (> 24h = sessions mortes).
+          filtered = mapped.filter(g => !isStaleInProgress(g));
         } else {
-          games = mapped;
+          filtered = mapped;
+        }
+        // Si une ecriture locale est en cours (pendingGameWritesRef),
+        // on preserve la version locale de cette partie plutot que d'ecraser
+        // avec la version distante potentiellement obsolete.
+        if (pendingGameWritesRef.current.size > 0) {
+          games = filtered.map(remoteGame => {
+            if (pendingGameWritesRef.current.has(remoteGame.id)) {
+              const localGame = prev.games.find(g => g.id === remoteGame.id);
+              return localGame ?? remoteGame;
+            }
+            return remoteGame;
+          });
+          // Ajouter les parties locales pending qui n'ont pas encore atteint Supabase
+          prev.games.forEach(localGame => {
+            if (
+              pendingGameWritesRef.current.has(localGame.id) &&
+              !games.find(g => g.id === localGame.id)
+            ) {
+              games.push(localGame);
+            }
+          });
+        } else {
+          games = filtered;
         }
       } else {
         games = prev.games;
@@ -300,7 +342,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const createGame = useCallback((playerIds: string[], buyIn: number): Game => {
+  const createGame = useCallback(async (playerIds: string[], buyIn: number): Promise<Game> => {
     const gamePlayers: GamePlayer[] = playerIds.map(id => ({ playerId: id, rebuys: 0 }));
     const game: Game = {
       id: generateId(),
@@ -311,8 +353,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
     setData(prev => ({ ...prev, games: [...prev.games, game] }));
     if (supabase) {
-      supabase.from('games').insert(gameToDb(game))
-        .then(({ error }) => { if (error) console.error('createGame Supabase error:', error); });
+      pendingGameWritesRef.current.add(game.id);
+      try {
+        const { error } = await supabase.from('games').insert(gameToDb(game));
+        if (error) console.error('createGame Supabase error:', error);
+      } finally {
+        pendingGameWritesRef.current.delete(game.id);
+      }
     }
     return game;
   }, []);
@@ -338,12 +385,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const finishGame = useCallback((
+  const finishGame = useCallback(async (
     gameId: string,
     winnerId: string,
     secondId: string,
     shareGains = false,
-  ): Game => {
+  ): Promise<Game> => {
     const game = data.games.find(g => g.id === gameId);
     if (!game) throw new Error(`Game ${gameId} not found`);
 
@@ -423,8 +470,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }));
 
     if (supabase) {
-      supabase.from('games').update(gameToDb(finishedGame)).eq('id', gameId)
-        .then(({ error }) => { if (error) console.error('finishGame Supabase error:', error); });
+      pendingGameWritesRef.current.add(gameId);
+      try {
+        const { error } = await supabase.from('games').update(gameToDb(finishedGame)).eq('id', gameId);
+        if (error) console.error('finishGame Supabase error:', error);
+      } finally {
+        pendingGameWritesRef.current.delete(gameId);
+      }
     }
     return finishedGame;
   }, [data.games]);

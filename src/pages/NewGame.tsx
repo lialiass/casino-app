@@ -17,12 +17,12 @@ export default function NewGame() {
     })
   }
 
-  const handleStart = () => {
+  const handleStart = async () => {
     const buyInVal = parseFloat(buyIn)
     if (isNaN(buyInVal) || buyInVal <= 0) return
     if (selectedIds.size < 2) return
 
-    const game = createGame(Array.from(selectedIds), buyInVal)
+    const game = await createGame(Array.from(selectedIds), buyInVal)
     navigate(`/game/${game.id}`)
   }
 
