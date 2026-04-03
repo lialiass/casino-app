@@ -1,9 +1,9 @@
 import { useStore } from '../store'
 
 const MEDALS = [
-  { rank: 2, label: '2', color: '#9CA3AF', glow: 'rgba(156,163,175,0.35)', height: 52 },
-  { rank: 1, label: '1', color: '#F59E0B', glow: 'rgba(245,158,11,0.45)', height: 72 },
-  { rank: 3, label: '3', color: '#CD7C3A', glow: 'rgba(205,124,58,0.35)', height: 40 },
+  { rank: 2, emoji: '🥈', color: '#9CA3AF', glow: 'rgba(156,163,175,0.25)', height: 52, ringAlpha: '55' },
+  { rank: 1, emoji: '🥇', color: '#F59E0B', glow: 'rgba(245,158,11,0.35)', height: 72, ringAlpha: '88' },
+  { rank: 3, emoji: '🥉', color: '#CD7C3A', glow: 'rgba(205,124,58,0.25)', height: 40, ringAlpha: '44' },
 ]
 
 function getInitials(name: string) {
@@ -34,8 +34,8 @@ export default function Podium() {
   return (
     <div style={{
       marginTop: 28,
-      padding: '20px 0 4px',
-      borderTop: '0px solid var(--border)', // Normal si tu veux la ligne met 1
+      padding: '20px 0 8px',
+      borderTop: '0px solid var(--border)',
     }}>
       <div style={{
         fontSize: '0.7rem',
@@ -43,29 +43,27 @@ export default function Podium() {
         letterSpacing: '0.12em',
         textTransform: 'uppercase',
         color: 'var(--text-muted)',
-        marginBottom: 20,
-        textAlign: 'center', // si tu veux ecire un truc ecrit avant div
+        marginBottom: 24,
+        textAlign: 'center',
       }}>
-        
-      </div>  
+      
+      </div>
 
       <div style={{
         display: 'flex',
         alignItems: 'flex-end',
         justifyContent: 'center',
-        gap: 0,
+        gap: 8,
       }}>
         {ordered.map((entry, i) => {
           const medal = MEDALS[i]
+
           if (!entry) {
-            // Empty slot
-            return (
-              <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }} />
-            )
+            return <div key={i} style={{ flex: 1 }} />
           }
 
           const isFirst = medal.rank === 1
-          const avatarSize = isFirst ? 64 : 50
+          const avatarSize = isFirst ? 68 : 52
 
           return (
             <div key={entry.player.id} style={{
@@ -73,34 +71,35 @@ export default function Podium() {
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
-              gap: 6,
+              gap: 0,
             }}>
-              {/* Avatar */}
+
+              {/* Avatar — clean, no overlay, no badge */}
               <div style={{
                 position: 'relative',
-                marginBottom: 2,
+                marginBottom: 10,
               }}>
-                {/* Glow ring */}
+                {/* Ambient glow */}
                 <div style={{
                   position: 'absolute',
-                  inset: -3,
+                  inset: -6,
                   borderRadius: '50%',
                   background: `radial-gradient(circle, ${medal.glow} 0%, transparent 70%)`,
                   zIndex: 0,
+                  filter: 'blur(4px)',
                 }} />
-                {/* Border ring */}
+                {/* Ring */}
                 <div style={{
-                  width: avatarSize + 6,
-                  height: avatarSize + 6,
+                  width: avatarSize + 8,
+                  height: avatarSize + 8,
                   borderRadius: '50%',
-                  border: `2px solid ${medal.color}`,
+                  border: `2px solid ${medal.color}${medal.ringAlpha}`,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  background: 'var(--bg-card)',
                   position: 'relative',
                   zIndex: 1,
-                  boxShadow: `0 0 12px ${medal.glow}`,
+                  boxShadow: `0 2px 16px ${medal.glow}`,
                 }}>
                   <div style={{
                     width: avatarSize,
@@ -111,7 +110,7 @@ export default function Podium() {
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    fontSize: isFirst ? '1.2rem' : '0.95rem',
+                    fontSize: isFirst ? '1.3rem' : '1rem',
                     fontWeight: 800,
                     color: medal.color,
                     flexShrink: 0,
@@ -120,68 +119,73 @@ export default function Podium() {
                       <img
                         src={entry.player.photoUrl}
                         alt={entry.player.name}
-                        style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }}
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          objectFit: 'cover',
+                          objectPosition: 'center',
+                          display: 'block',
+                        }}
                       />
                     ) : (
                       getInitials(entry.player.name)
                     )}
                   </div>
                 </div>
+              </div>
 
-                {/* Rank badge */}
+              {/* Glass info card — rank emoji + name + net */}
+              <div style={{
+                width: '100%',
+                borderRadius: 10,
+                padding: '8px 6px 10px',
+                // background: 'rgba(255,255,255,0.04)',
+                //backdropFilter: 'blur(8px)',
+                //WebkitBackdropFilter: 'blur(8px)',
+                // border: '1px solid rgba(255,255,255,0.08)',
+                // boxShadow: '0 2px 12px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.06)',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: 3,
+                marginBottom: 8,
+              }}>
+                <div style={{ fontSize: isFirst ? '1.1rem' : '0.9rem', lineHeight: 1 }}>
+                  {medal.emoji}
+                </div>
                 <div style={{
-                  position: 'absolute',
-                  bottom: -4,
-                  right: -2,
-                  width: 20,
-                  height: 20,
-                  borderRadius: '50%',
-                  background: medal.color,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '0.6rem',
-                  fontWeight: 900,
-                  color: '#000',
-                  zIndex: 2,
-                  boxShadow: '0 1px 4px rgba(0,0,0,0.4)',
+                  fontSize: isFirst ? '0.78rem' : '0.7rem',
+                  fontWeight: 700,
+                  color: 'var(--text)',
+                  maxWidth: '90%',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  textAlign: 'center',
                 }}>
-                  {medal.rank}
+                  {entry.player.name}
+                </div>
+                <div style={{
+                  fontSize: isFirst ? '0.82rem' : '0.72rem',
+                  fontWeight: 800,
+                  color: entry.netResult > 0
+                    ? 'var(--green)'
+                    : entry.netResult < 0
+                      ? 'var(--red)'
+                      : 'var(--text-muted)',
+                }}>
+                  {formatNet(entry.netResult)}
                 </div>
               </div>
 
-              {/* Name */}
+              {/* Podium step */}
               <div style={{
-                fontSize: isFirst ? '0.8rem' : '0.72rem',
-                fontWeight: 700,
-                color: 'var(--text)',
-                maxWidth: 80,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-                textAlign: 'center',
-              }}>
-                {entry.player.name}
-              </div>
-
-              {/* Net result */}
-              <div style={{
-                fontSize: isFirst ? '0.85rem' : '0.75rem',
-                fontWeight: 800,
-                color: entry.netResult > 0 ? 'var(--green)' : entry.netResult < 0 ? 'var(--red)' : 'var(--text-muted)',
-              }}>
-                {formatNet(entry.netResult)}
-              </div>
-
-              {/* Podium block */}
-              <div style={{
-                width: '80%',
+                width: '88%',
                 height: medal.height,
                 borderRadius: '6px 6px 0 0',
-                background: `linear-gradient(180deg, ${medal.color}22 0%, ${medal.color}11 100%)`,
-                border: `1px solid ${medal.color}44`,
+                background: `linear-gradient(180deg, ${medal.color}1a 0%, ${medal.color}08 100%)`,
+                border: `1px solid ${medal.color}33`,
                 borderBottom: 'none',
-                marginTop: 4,
               }} />
             </div>
           )

@@ -24,7 +24,7 @@ function NavBar() {
         Joueurs
       </NavLink>
       <NavLink to="/new-game" className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')}>
-        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 14l-5-5 1.41-1.41L12 14.17l7.59-7.59L21 8l-9 9z"/></svg>
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-2 10h-4v4h-2v-4H7v-2h4V7h2v4h4v2z"/></svg>
         Partie
       </NavLink>
       <NavLink to="/history" className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')}>
