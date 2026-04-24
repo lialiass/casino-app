@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import type { Profile } from '../types'
+import type { Profile, ProfileSearchResult, Friendship, FriendshipWithProfile, Group, GroupMember, Game, GamePlayer, GameResult } from '../types'
 
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
@@ -71,6 +71,76 @@ async function compressImage(file: File, maxSize = 400): Promise<Blob> {
   })
 }
 
+// --- Friends ---
+
+export async function searchProfiles(query: string, excludeId: string): Promise<ProfileSearchResult[]> {
+  if (!supabase) return []
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, pseudo, photo_url')
+    .ilike('pseudo', `%${query}%`)
+    .neq('id', excludeId)
+    .limit(10)
+  if (error || !data) return []
+  return data.map(d => ({ id: d.id, pseudo: d.pseudo, photoUrl: d.photo_url ?? undefined }))
+}
+
+export async function sendFriendRequest(requesterId: string, addresseeId: string) {
+  if (!supabase) return
+  return supabase.from('friendships').insert({ requester_id: requesterId, addressee_id: addresseeId, status: 'pending' })
+}
+
+export async function acceptFriendRequest(friendshipId: string) {
+  if (!supabase) return
+  return supabase.from('friendships').update({ status: 'accepted' }).eq('id', friendshipId)
+}
+
+export async function rejectFriendRequest(friendshipId: string) {
+  if (!supabase) return
+  return supabase.from('friendships').update({ status: 'rejected' }).eq('id', friendshipId)
+}
+
+export async function removeFriendship(friendshipId: string) {
+  if (!supabase) return
+  return supabase.from('friendships').delete().eq('id', friendshipId)
+}
+
+export async function fetchMyFriendships(userId: string): Promise<FriendshipWithProfile[]> {
+  if (!supabase) return []
+
+  const { data: rows, error } = await supabase
+    .from('friendships')
+    .select('*')
+    .or(`requester_id.eq.${userId},addressee_id.eq.${userId}`)
+    .neq('status', 'rejected')
+
+  if (error || !rows || rows.length === 0) return []
+
+  const otherIds = [...new Set(rows.map(r => r.requester_id === userId ? r.addressee_id : r.requester_id))]
+
+  const { data: profiles } = await supabase
+    .from('profiles')
+    .select('id, pseudo, photo_url')
+    .in('id', otherIds)
+
+  const profileMap = new Map<string, ProfileSearchResult>()
+  for (const p of profiles ?? []) {
+    profileMap.set(p.id, { id: p.id, pseudo: p.pseudo, photoUrl: p.photo_url ?? undefined })
+  }
+
+  return rows.map(r => {
+    const otherId = r.requester_id === userId ? r.addressee_id : r.requester_id
+    return {
+      id: r.id,
+      requesterId: r.requester_id,
+      addresseeId: r.addressee_id,
+      status: r.status as Friendship['status'],
+      createdAt: r.created_at,
+      otherProfile: profileMap.get(otherId) ?? { id: otherId, pseudo: '?', photoUrl: undefined },
+    }
+  })
+}
+
 export async function uploadProfilePhoto(userId: string, file: File): Promise<string | null> {
   if (!supabase) return null
   try {
@@ -86,4 +156,179 @@ export async function uploadProfilePhoto(userId: string, file: File): Promise<st
     console.error('uploadProfilePhoto error:', err)
     return null
   }
+}
+
+// --- Groups ---
+
+function dbToGroup(r: Record<string, unknown>): Group {
+  return {
+    id: r.id as string,
+    name: r.name as string,
+    ownerId: r.owner_id as string,
+    photoUrl: (r.photo_url as string | null) ?? undefined,
+    createdAt: r.created_at as string,
+  }
+}
+
+function dbToGameLocal(row: Record<string, unknown>): Game {
+  return {
+    id: row.id as string,
+    date: row.date as string,
+    buyIn: row.buy_in as number,
+    status: row.status as 'in_progress' | 'finished',
+    winnerId: (row.winner_id as string | null) ?? undefined,
+    secondId: (row.second_id as string | null) ?? undefined,
+    pot: (row.pot as number | null) ?? undefined,
+    players: (row.players as GamePlayer[]) ?? [],
+    results: (row.results as GameResult[] | null) ?? undefined,
+    sharedWin: (row.shared_win as boolean | null) ?? undefined,
+    groupId: (row.group_id as string | null) ?? undefined,
+  }
+}
+
+export async function fetchMyGroups(userId: string): Promise<Group[]> {
+  if (!supabase) return []
+  const { data: memberRows } = await supabase
+    .from('group_members')
+    .select('group_id')
+    .eq('user_id', userId)
+  if (!memberRows || memberRows.length === 0) return []
+  const groupIds = memberRows.map((r: Record<string, unknown>) => r.group_id as string)
+  const { data: groupRows } = await supabase
+    .from('groups')
+    .select('*')
+    .in('id', groupIds)
+    .order('created_at', { ascending: false })
+  if (!groupRows) return []
+  return groupRows.map(r => dbToGroup(r as Record<string, unknown>))
+}
+
+export async function fetchGroupById(groupId: string): Promise<Group | null> {
+  if (!supabase) return null
+  const { data, error } = await supabase.from('groups').select('*').eq('id', groupId).single()
+  if (error || !data) return null
+  return dbToGroup(data as Record<string, unknown>)
+}
+
+export async function fetchGroupMembers(groupId: string): Promise<GroupMember[]> {
+  if (!supabase) return []
+  const { data: memberRows } = await supabase
+    .from('group_members')
+    .select('*')
+    .eq('group_id', groupId)
+  if (!memberRows || memberRows.length === 0) return []
+  const userIds = memberRows.map((r: Record<string, unknown>) => r.user_id as string)
+  const { data: profiles } = await supabase
+    .from('profiles')
+    .select('id, pseudo, photo_url')
+    .in('id', userIds)
+  const profileMap = new Map<string, ProfileSearchResult>()
+  for (const p of profiles ?? []) {
+    profileMap.set(p.id, { id: p.id, pseudo: p.pseudo, photoUrl: p.photo_url ?? undefined })
+  }
+  return memberRows.map((r: Record<string, unknown>) => ({
+    groupId: r.group_id as string,
+    userId: r.user_id as string,
+    role: r.role as 'owner' | 'member',
+    joinedAt: r.joined_at as string,
+    profile: profileMap.get(r.user_id as string) ?? { id: r.user_id as string, pseudo: '?', photoUrl: undefined },
+  }))
+}
+
+export async function createGroup(
+  name: string,
+  _ownerId: string,
+  memberIds: string[],
+): Promise<Group | null> {
+  if (!supabase) return null
+
+  // Retrieve the authenticated user directly from Supabase auth
+  // to guarantee owner_id === auth.uid() and satisfy RLS WITH CHECK
+  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  if (authError || !user) {
+    console.error('createGroup: no authenticated user', authError)
+    throw new Error('Utilisateur non authentifié')
+  }
+
+  const groupPayload = {
+    name: name.trim(),
+    owner_id: user.id,
+    photo_url: null as string | null,
+  }
+  console.log('[createGroup] groups insert payload:', groupPayload)
+
+  const { data: groupData, error } = await supabase
+    .from('groups')
+    .insert(groupPayload)
+    .select()
+    .single()
+  if (error || !groupData) { console.error('createGroup groups insert error:', error); return null }
+
+  const group = dbToGroup(groupData as Record<string, unknown>)
+
+  const membersPayload = [
+    { group_id: group.id, user_id: user.id, role: 'owner' },
+    ...memberIds.filter(id => id !== user.id).map(id => ({ group_id: group.id, user_id: id, role: 'member' })),
+  ]
+  console.log('[createGroup] group_members insert payload:', membersPayload)
+
+  const { error: memberError } = await supabase.from('group_members').insert(membersPayload)
+  if (memberError) console.error('createGroup group_members insert error:', memberError)
+
+  return group
+}
+
+export async function updateGroup(groupId: string, updates: { name?: string; photoUrl?: string }): Promise<void> {
+  if (!supabase) return
+  const row: Record<string, unknown> = {}
+  if (updates.name !== undefined) row.name = updates.name
+  if (updates.photoUrl !== undefined) row.photo_url = updates.photoUrl
+  const { error } = await supabase.from('groups').update(row).eq('id', groupId)
+  if (error) console.error('updateGroup error:', error)
+}
+
+export async function deleteGroup(groupId: string): Promise<void> {
+  if (!supabase) return
+  const { error } = await supabase.from('groups').delete().eq('id', groupId)
+  if (error) console.error('deleteGroup error:', error)
+}
+
+export async function addGroupMember(groupId: string, userId: string): Promise<void> {
+  if (!supabase) return
+  const { error } = await supabase.from('group_members').insert({ group_id: groupId, user_id: userId, role: 'member' })
+  if (error) console.error('addGroupMember error:', error)
+}
+
+export async function removeGroupMember(groupId: string, userId: string): Promise<void> {
+  if (!supabase) return
+  const { error } = await supabase.from('group_members').delete().eq('group_id', groupId).eq('user_id', userId)
+  if (error) console.error('removeGroupMember error:', error)
+}
+
+export async function uploadGroupPhoto(ownerId: string, groupId: string, file: File): Promise<string | null> {
+  if (!supabase) return null
+  try {
+    const compressed = await compressImage(file)
+    const path = `${ownerId}/groups/${groupId}/${Date.now()}.jpg`
+    const { error } = await supabase.storage
+      .from('profile-photos')
+      .upload(path, compressed, { contentType: 'image/jpeg', upsert: true })
+    if (error) throw error
+    const { data } = supabase.storage.from('profile-photos').getPublicUrl(path)
+    return data.publicUrl
+  } catch (err) {
+    console.error('uploadGroupPhoto error:', err)
+    return null
+  }
+}
+
+export async function fetchGroupGames(groupId: string): Promise<Game[]> {
+  if (!supabase) return []
+  const { data, error } = await supabase
+    .from('games')
+    .select('*')
+    .eq('group_id', groupId)
+    .order('date', { ascending: false })
+  if (error || !data) return []
+  return data.map(r => dbToGameLocal(r as Record<string, unknown>))
 }

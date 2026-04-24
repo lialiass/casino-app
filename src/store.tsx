@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-import { Player, Game, GamePlayer, GameResult, PlayerStats } from './types';
+import { Player, Game, GamePlayer, GameResult, PlayerStats, ProfileSearchResult } from './types';
 import { supabase, hasSupabase } from './lib/supabase';
 import { useAuth } from './contexts/AuthContext';
 
@@ -32,7 +32,8 @@ interface AppContextType {
   deletePlayer: (id: string) => Promise<void>;
   resetPlayers: () => Promise<void>;
   uploadPlayerPhoto: (playerId: string, file: File) => Promise<string | null>;
-  createGame: (playerIds: string[], buyIn: number) => Promise<Game>;
+  ensureUserPlayer: (profile: ProfileSearchResult) => Promise<void>;
+  createGame: (playerIds: string[], buyIn: number, groupId?: string) => Promise<Game>;
   addRebuy: (gameId: string, playerId: string) => void;
   finishGame: (gameId: string, winnerId: string, secondId: string, shareGains?: boolean) => Promise<Game>;
   deleteGame: (gameId: string) => Promise<void>;
@@ -83,6 +84,7 @@ function dbToPlayer(row: Record<string, unknown>): Player {
     name: row.name as string,
     createdAt: (row.created_at as string) ?? new Date().toISOString(),
     photoUrl: (row.photo_url as string | null) ?? undefined,
+    userId: (row.user_id as string | null) ?? undefined,
   };
 }
 
@@ -92,6 +94,7 @@ function playerToDb(p: Player): Record<string, unknown> {
     name: p.name,
     created_at: p.createdAt,
     photo_url: p.photoUrl ?? null,
+    user_id: p.userId ?? null,
   };
 }
 
@@ -107,6 +110,7 @@ function dbToGame(row: Record<string, unknown>): Game {
     players: (row.players as GamePlayer[]) ?? [],
     results: (row.results as GameResult[] | null) ?? undefined,
     sharedWin: (row.shared_win as boolean | null) ?? undefined,
+    groupId: (row.group_id as string | null) ?? undefined,
   } as Game;
 }
 
@@ -122,6 +126,7 @@ function gameToDb(g: Game): Record<string, unknown> {
     pot: g.pot ?? null,
     players: g.players,
     results: g.results ?? null,
+    group_id: g.groupId ?? null,
   };
   // N'inclure shared_win que si explicitement defini.
   // Evite l'erreur Supabase "column does not exist" sur les bases sans migration.
@@ -371,7 +376,39 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const createGame = useCallback(async (playerIds: string[], buyIn: number): Promise<Game> => {
+  const ensureUserPlayer = useCallback(async (profile: ProfileSearchResult): Promise<void> => {
+    const player: Player = {
+      id: profile.id,
+      name: profile.pseudo,
+      createdAt: new Date().toISOString(),
+      photoUrl: profile.photoUrl,
+      userId: profile.id,
+    };
+    setData(prev => {
+      const existing = prev.players.find(p => p.id === profile.id);
+      if (!existing) {
+        return { ...prev, players: [...prev.players, player] };
+      }
+      if (existing.name !== profile.pseudo || existing.photoUrl !== profile.photoUrl) {
+        return {
+          ...prev,
+          players: prev.players.map(p =>
+            p.id === profile.id ? { ...p, name: profile.pseudo, photoUrl: profile.photoUrl } : p
+          ),
+        };
+      }
+      return prev;
+    });
+    if (supabase) {
+      const { error } = await supabase.from('players').upsert(
+        { ...playerToDb(player), created_by: userIdRef.current },
+        { onConflict: 'id' }
+      );
+      if (error) console.error('ensureUserPlayer upsert error:', error);
+    }
+  }, []);
+
+  const createGame = useCallback(async (playerIds: string[], buyIn: number, groupId?: string): Promise<Game> => {
     const gamePlayers: GamePlayer[] = playerIds.map(id => ({ playerId: id, rebuys: 0 }));
     const game: Game = {
       id: generateId(),
@@ -379,6 +416,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       buyIn,
       players: gamePlayers,
       status: 'in_progress',
+      ...(groupId ? { groupId } : {}),
     };
     setData(prev => ({ ...prev, games: [...prev.games, game] }));
     if (supabase) {
@@ -597,6 +635,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         deletePlayer,
         resetPlayers,
         uploadPlayerPhoto,
+        ensureUserPlayer,
         createGame,
         addRebuy,
         finishGame,

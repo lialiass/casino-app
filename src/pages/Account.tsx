@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { uploadProfilePhoto } from '../lib/supabase'
 import { useStore } from '../store'
@@ -36,7 +37,7 @@ function Avatar({ photoUrl, pseudo, size = 80 }: { photoUrl?: string; pseudo?: s
   )
 }
 
-export default function Account() {
+export default function Account({ embedded = false }: { embedded?: boolean }) {
   const { user, profile, signOut, updateProfile } = useAuth()
   const { games } = useStore()
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -89,9 +90,11 @@ export default function Account() {
 
   return (
     <div>
-      <div className="header">
-        <h1>Mon compte</h1>
-      </div>
+      {!embedded && (
+        <div className="header">
+          <h1>Mon compte</h1>
+        </div>
+      )}
 
       <div className="page">
 
@@ -206,6 +209,19 @@ export default function Account() {
             </button>
           </div>
         </div>
+
+        {/* Players history link */}
+        {embedded && (
+          <Link
+            to="/players"
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', color: 'var(--text-dim)', fontSize: '0.85rem', textDecoration: 'none', borderTop: '1px solid var(--border)', marginTop: 8 }}
+          >
+            <span>Joueurs historiques</span>
+            <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14" style={{ color: 'var(--text-muted)' }}>
+              <path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z" />
+            </svg>
+          </Link>
+        )}
 
         {/* Sign out */}
         <button className="btn btn-ghost" onClick={signOut} style={{ marginTop: 8 }}>

@@ -861,3 +861,99 @@ input[type=number]::-webkit-outer-spin-button {
   outline: none;
   min-width: 0;
 }
+
+/* Page tabs (Profile sub-tabs) */
+.page-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  max-width: 480px;
+  margin: 0 auto;
+  width: 100%;
+  padding: 0 16px;
+}
+
+.page-tab {
+  flex: 1;
+  padding: 12px 0;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+  margin-bottom: -1px;
+}
+
+.page-tab.active {
+  color: var(--gold);
+  border-bottom-color: var(--gold);
+}
+
+/* Friends */
+.friends-search-input {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 0.9rem;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.friends-search-input:focus {
+  border-color: var(--gold);
+}
+
+.friends-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--gold);
+  color: #080c14;
+  font-size: 0.65rem;
+  font-weight: 800;
+  border-radius: 10px;
+  padding: 1px 6px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+/* Groups */
+.group-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.group-card:hover {
+  border-color: var(--border-gold);
+}
+
+/* Header action button (+ in header) */
+.header-action-btn {
+  background: none;
+  border: none;
+  color: var(--gold);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: opacity 0.15s;
+}
+
+.header-action-btn:hover {
+  opacity: 0.75;
+}

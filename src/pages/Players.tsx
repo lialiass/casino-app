@@ -1,25 +1,21 @@
 import { useState, useRef } from 'react'
 import { useStore } from '../store'
+import { useAuth } from '../contexts/AuthContext'
 import { hasSupabase } from '../lib/supabase'
 
 export default function Players() {
-  const { players, addPlayer, updatePlayer, deletePlayer, resetPlayers, uploadPlayerPhoto, games } = useStore()
-  const [newName, setNewName] = useState('')
+  const { players, updatePlayer, deletePlayer, uploadPlayerPhoto, games } = useStore()
+  const { user } = useAuth()
   const [editId, setEditId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
-  const [photoModal, setPhotoModal] = useState<string | null>(null) // playerId
+  const [photoModal, setPhotoModal] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
-  const [deleting, setDeleting] = useState<string | null>(null) // playerId en cours de suppression
-  const [resetting, setResetting] = useState(false)
+  const [deleting, setDeleting] = useState<string | null>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const galleryInputRef = useRef<HTMLInputElement>(null)
 
-  const handleAdd = () => {
-    const name = newName.trim()
-    if (!name) return
-    addPlayer(name)
-    setNewName('')
-  }
+  const legacyPlayers = players.filter(p => !p.userId)
+  const userPlayers = players.filter(p => !!p.userId)
 
   const handleEdit = (id: string, currentName: string) => {
     setEditId(id)
@@ -46,13 +42,6 @@ export default function Players() {
     setDeleting(id)
     await deletePlayer(id)
     setDeleting(null)
-  }
-
-  const handleResetPlayers = async () => {
-    if (!confirm('Supprimer tous les joueurs ? Cette action est irréversible.')) return
-    setResetting(true)
-    await resetPlayers()
-    setResetting(false)
   }
 
   const handlePhotoFile = async (file: File | null | undefined) => {
@@ -83,128 +72,127 @@ export default function Players() {
       </div>
 
       <div className="page">
-        {/* Add player */}
-        <div className="section-title" style={{ marginTop: 8 }}>Ajouter un joueur</div>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 24 }}>
-          <input
-            className="input"
-            placeholder="Nom du joueur..."
-            value={newName}
-            onChange={e => setNewName(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handleAdd()}
-            maxLength={20}
-          />
-          <button
-            className="btn btn-gold"
-            style={{ width: 'auto', padding: '12px 18px', flexShrink: 0 }}
-            onClick={handleAdd}
-            disabled={!newName.trim()}
-          >
-            +
-          </button>
-        </div>
 
-        {/* Player list */}
-        <div className="section-title">Joueurs ({players.length})</div>
-
-        {players.length === 0 ? (
-          <div className="empty-state">
-            <div className="icon">👤</div>
-            <p>Aucun joueur. Ajoutez-en ci-dessus.</p>
-          </div>
-        ) : (
-          players.map(player => (
-            <div key={player.id} className="player-item">
-              {/* Avatar with optional photo */}
-              <div
-                className="player-avatar"
-                style={{
-                  backgroundImage: player.photoUrl ? `url(${player.photoUrl})` : undefined,
-                  backgroundSize: 'cover',
-                  backgroundPosition: 'center',
-                  cursor: hasSupabase ? 'pointer' : 'default',
-                  position: 'relative',
-                  flexShrink: 0,
-                }}
-                onClick={() => hasSupabase && setPhotoModal(player.id)}
-                title={hasSupabase ? 'Changer la photo' : undefined}
-              >
-                {!player.photoUrl && getInitials(player.name)}
-                {hasSupabase && (
-                  <div style={{
-                    position: 'absolute', inset: 0, borderRadius: '50%',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    background: 'rgba(0,0,0,0)', fontSize: 10,
-                    transition: 'background 0.2s',
+        {/* Real user players */}
+        {userPlayers.length > 0 && (
+          <>
+            <div className="section-title" style={{ marginTop: 8 }}>Joueurs réels</div>
+            {userPlayers.map(player => (
+              <div key={player.id} className="player-item">
+                <div
+                  className="player-avatar"
+                  style={{
+                    backgroundImage: player.photoUrl ? `url(${player.photoUrl})` : undefined,
+                    backgroundSize: 'cover',
+                    backgroundPosition: 'center',
+                    flexShrink: 0,
                   }}
-                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(0,0,0,0.4)')}
-                    onMouseLeave={e => (e.currentTarget.style.background = 'rgba(0,0,0,0)')}
-                  >
-                  </div>
-                )}
-              </div>
-
-              {editId === player.id ? (
-                <input
-                  className="input"
-                  value={editName}
-                  onChange={e => setEditName(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter') handleSaveEdit()
-                    if (e.key === 'Escape') setEditId(null)
-                  }}
-                  autoFocus
-                  maxLength={20}
-                  style={{ flex: 1 }}
-                />
-              ) : (
+                >
+                  {!player.photoUrl && getInitials(player.name)}
+                </div>
                 <span className="player-name">{player.name}</span>
-              )}
-
-              <div style={{ display: 'flex', gap: 6 }}>
-                {editId === player.id ? (
-                  <>
-                    <button className="btn btn-green btn-sm" onClick={handleSaveEdit}>✓</button>
-                    <button className="btn btn-ghost btn-sm" onClick={() => setEditId(null)}>✕</button>
-                  </>
-                ) : (
-                  <>
-                    <button
-                      className="btn btn-outline btn-sm"
-                      onClick={() => handleEdit(player.id, player.name)}
-                    >
-                      ✏️
-                    </button>
-                    <button
-                      className="btn btn-ghost btn-sm"
-                      style={{ borderColor: '#ef444440', color: 'var(--red)' }}
-                      onClick={() => handleDelete(player.id)}
-                      disabled={deleting === player.id}
-                    >
-                      {deleting === player.id ? '…' : '🗑️'}
-                    </button>
-                  </>
-                )}
+                <span
+                  className="badge"
+                  style={{
+                    background: player.userId === user?.id ? 'var(--gold)' : 'var(--bg-felt)',
+                    color: player.userId === user?.id ? '#080c14' : 'var(--text-muted)',
+                    fontSize: '0.65rem',
+                    padding: '2px 8px',
+                    borderRadius: 10,
+                    fontWeight: 700,
+                    flexShrink: 0,
+                  }}
+                >
+                  {player.userId === user?.id ? 'Moi' : 'Compte'}
+                </span>
               </div>
-            </div>
-          ))
+            ))}
+          </>
         )}
-        {/* Reset all players */}
-        {players.length > 0 && (
-          <div style={{ marginTop: 32, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
-            <button
-              className="btn btn-ghost"
-              style={{ color: 'var(--red)', borderColor: '#ef444440' }}
-              onClick={handleResetPlayers}
-              disabled={resetting}
-            >
-              {resetting ? 'Suppression…' : '🗑️ Réinitialiser tous les joueurs'}
-            </button>
+
+        {/* Legacy manual players */}
+        {legacyPlayers.length > 0 && (
+          <>
+            <div className="section-title" style={{ marginTop: userPlayers.length > 0 ? 24 : 8 }}>
+              Joueurs historiques
+              <span style={{ fontSize: '0.7rem', fontWeight: 400, color: 'var(--text-muted)', marginLeft: 8 }}>
+                (anciennes parties)
+              </span>
+            </div>
+            {legacyPlayers.map(player => (
+              <div key={player.id} className="player-item">
+                <div
+                  className="player-avatar"
+                  style={{
+                    backgroundImage: player.photoUrl ? `url(${player.photoUrl})` : undefined,
+                    backgroundSize: 'cover',
+                    backgroundPosition: 'center',
+                    cursor: hasSupabase ? 'pointer' : 'default',
+                    position: 'relative',
+                    flexShrink: 0,
+                  }}
+                  onClick={() => hasSupabase && setPhotoModal(player.id)}
+                >
+                  {!player.photoUrl && getInitials(player.name)}
+                </div>
+
+                {editId === player.id ? (
+                  <input
+                    className="input"
+                    value={editName}
+                    onChange={e => setEditName(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') handleSaveEdit()
+                      if (e.key === 'Escape') setEditId(null)
+                    }}
+                    autoFocus
+                    maxLength={20}
+                    style={{ flex: 1 }}
+                  />
+                ) : (
+                  <span className="player-name">{player.name}</span>
+                )}
+
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {editId === player.id ? (
+                    <>
+                      <button className="btn btn-green btn-sm" onClick={handleSaveEdit}>✓</button>
+                      <button className="btn btn-ghost btn-sm" onClick={() => setEditId(null)}>✕</button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        className="btn btn-outline btn-sm"
+                        onClick={() => handleEdit(player.id, player.name)}
+                      >
+                        ✏️
+                      </button>
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        style={{ borderColor: '#ef444440', color: 'var(--red)' }}
+                        onClick={() => handleDelete(player.id)}
+                        disabled={deleting === player.id}
+                      >
+                        {deleting === player.id ? '…' : '🗑️'}
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            ))}
+          </>
+        )}
+
+        {players.length === 0 && (
+          <div className="empty-state" style={{ marginTop: 8 }}>
+            <div className="icon">👤</div>
+            <p>Aucun joueur pour l'instant.<br />Crée une partie avec tes amis pour commencer.</p>
           </div>
         )}
+
       </div>
 
-      {/* Photo modal */}
+      {/* Photo modal — legacy players only */}
       {photoModal && (
         <div
           style={{
@@ -221,46 +209,25 @@ export default function Players() {
             <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 16, color: 'var(--text)' }}>
               Photo du joueur
             </div>
-
             {uploading ? (
               <div style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>
                 Upload en cours...
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {/* Aperçu de la photo existante, plein cadre */}
                 {players.find(p => p.id === photoModal)?.photoUrl && (
-                  <div style={{
-                    width: '100%',
-                    aspectRatio: '1 / 1',
-                    borderRadius: 12,
-                    overflow: 'hidden',
-                    marginBottom: 4,
-                    background: 'var(--bg)',
-                  }}>
+                  <div style={{ width: '100%', aspectRatio: '1 / 1', borderRadius: 12, overflow: 'hidden', marginBottom: 4, background: 'var(--bg)' }}>
                     <img
                       src={players.find(p => p.id === photoModal)!.photoUrl}
                       alt="Photo du joueur"
-                      style={{
-                        width: '100%',
-                        height: '100%',
-                        objectFit: 'cover',
-                        objectPosition: 'center',
-                        display: 'block',
-                      }}
+                      style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                     />
                   </div>
                 )}
-                <button
-                  className="btn btn-gold"
-                  onClick={() => cameraInputRef.current?.click()}
-                >
+                <button className="btn btn-gold" onClick={() => cameraInputRef.current?.click()}>
                   📷 Prendre une photo
                 </button>
-                <button
-                  className="btn btn-outline"
-                  onClick={() => galleryInputRef.current?.click()}
-                >
+                <button className="btn btn-outline" onClick={() => galleryInputRef.current?.click()}>
                   🖼️ Choisir dans la galerie
                 </button>
                 {players.find(p => p.id === photoModal)?.photoUrl && (
@@ -272,33 +239,17 @@ export default function Players() {
                     🗑️ Supprimer la photo
                   </button>
                 )}
-                <button className="btn btn-ghost" onClick={() => setPhotoModal(null)}>
-                  Annuler
-                </button>
+                <button className="btn btn-ghost" onClick={() => setPhotoModal(null)}>Annuler</button>
               </div>
             )}
           </div>
         </div>
       )}
 
-      {/* Hidden file inputs */}
-      <input
-        ref={cameraInputRef}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        style={{ display: 'none' }}
-        onChange={e => handlePhotoFile(e.target.files?.[0])}
-        onClick={e => { (e.target as HTMLInputElement).value = '' }}
-      />
-      <input
-        ref={galleryInputRef}
-        type="file"
-        accept="image/*"
-        style={{ display: 'none' }}
-        onChange={e => handlePhotoFile(e.target.files?.[0])}
-        onClick={e => { (e.target as HTMLInputElement).value = '' }}
-      />
+      <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }}
+        onChange={e => handlePhotoFile(e.target.files?.[0])} onClick={e => { (e.target as HTMLInputElement).value = '' }} />
+      <input ref={galleryInputRef} type="file" accept="image/*" style={{ display: 'none' }}
+        onChange={e => handlePhotoFile(e.target.files?.[0])} onClick={e => { (e.target as HTMLInputElement).value = '' }} />
     </div>
   )
 }

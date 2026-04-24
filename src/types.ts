@@ -3,6 +3,7 @@ export interface Player {
   name: string
   createdAt: string
   photoUrl?: string
+  userId?: string
 }
 
 export interface GamePlayer {
@@ -30,6 +31,23 @@ export interface Game {
   pot?: number
   results?: GameResult[]
   sharedWin?: boolean
+  groupId?: string
+}
+
+export interface Group {
+  id: string
+  name: string
+  ownerId: string
+  photoUrl?: string
+  createdAt: string
+}
+
+export interface GroupMember {
+  groupId: string
+  userId: string
+  role: 'owner' | 'member'
+  joinedAt: string
+  profile: ProfileSearchResult
 }
 
 export interface PlayerStats {
@@ -48,4 +66,22 @@ export interface Profile {
   email: string
   createdAt: string
   photoUrl?: string
+}
+
+export interface ProfileSearchResult {
+  id: string
+  pseudo: string
+  photoUrl?: string
+}
+
+export interface Friendship {
+  id: string
+  requesterId: string
+  addresseeId: string
+  status: 'pending' | 'accepted' | 'rejected'
+  createdAt: string
+}
+
+export interface FriendshipWithProfile extends Friendship {
+  otherProfile: ProfileSearchResult
 }
