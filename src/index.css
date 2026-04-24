@@ -63,10 +63,14 @@ body {
 }
 
 .header h1 {
+  flex: 1;
   font-size: 1.1rem;
   font-weight: 700;
   color: var(--gold);
   letter-spacing: 0.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .header-back {
@@ -956,4 +960,105 @@ input[type=number]::-webkit-outer-spin-button {
 
 .header-action-btn:hover {
   opacity: 0.75;
+}
+
+/* ── Phase 4 — Invitations & badge ──────────────────────────────────────── */
+
+/* Nav badge (red dot with count) */
+.nav-badge {
+  position: absolute;
+  top: -5px;
+  right: -7px;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 8px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 0.6rem;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 3px;
+  line-height: 1;
+  pointer-events: none;
+  border: 1.5px solid var(--bg-card);
+}
+
+/* Invite card */
+.invite-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 12px;
+  transition: border-color 0.15s;
+}
+
+.invite-card:hover {
+  border-color: var(--border-gold);
+}
+
+.invite-card-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.invite-actions {
+  display: flex;
+  gap: 10px;
+}
+
+/* Invite chips (mise / time) */
+.invite-chip {
+  display: inline-flex;
+  align-items: center;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 3px 10px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--gold);
+  white-space: nowrap;
+}
+
+.invite-chip-time {
+  color: var(--text-muted);
+  font-weight: 500;
+  border-color: transparent;
+  background: transparent;
+  padding-left: 0;
+}
+
+/* Toast notification */
+.invite-toast {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #166534;
+  border: 1px solid #22c55e50;
+  color: #bbf7d0;
+  padding: 10px 20px;
+  border-radius: 24px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  z-index: 200;
+  white-space: nowrap;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  animation: toast-in 0.25s ease;
+}
+
+.invite-toast.invite-toast-error {
+  background: #7f1d1d;
+  border-color: #ef444450;
+  color: #fca5a5;
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(-8px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
 }

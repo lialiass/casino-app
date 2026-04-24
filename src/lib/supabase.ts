@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import type { Profile, ProfileSearchResult, Friendship, FriendshipWithProfile, Group, GroupMember, Game, GamePlayer, GameResult } from '../types'
+import type { Profile, ProfileSearchResult, Friendship, FriendshipWithProfile, Group, GroupMember, Game, GamePlayer, GameResult, GameInviteWithDetails } from '../types'
 
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
@@ -331,4 +331,168 @@ export async function fetchGroupGames(groupId: string): Promise<Game[]> {
     .order('date', { ascending: false })
   if (error || !data) return []
   return data.map(r => dbToGameLocal(r as Record<string, unknown>))
+}
+
+// --- Game Invites ---
+
+export async function sendGameInvite(
+  gameId: string,
+  groupId: string | undefined,
+  receiverId: string,
+): Promise<void> {
+  if (!supabase) return
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return
+  const { error } = await supabase.from('game_invites').insert({
+    game_id: gameId,
+    group_id: groupId ?? null,
+    sender_id: user.id,
+    receiver_id: receiverId,
+    status: 'pending',
+  })
+  if (error) {
+    console.error('sendGameInvite error:', error)
+    throw error  // propagate so callers can handle UI state correctly
+  }
+}
+
+export async function fetchPendingInvites(userId: string): Promise<GameInviteWithDetails[]> {
+  if (!supabase) return []
+  const { data, error } = await supabase
+    .from('game_invites')
+    .select('*')
+    .eq('receiver_id', userId)
+    .eq('status', 'pending')
+    .order('created_at', { ascending: false })
+  if (error || !data) return []
+
+  const senderIds = [...new Set(data.map((r: Record<string, unknown>) => r.sender_id as string))]
+  const { data: profiles } = await supabase
+    .from('profiles')
+    .select('id, pseudo, photo_url')
+    .in('id', senderIds)
+  const profileMap = new Map<string, ProfileSearchResult>()
+  for (const p of profiles ?? []) {
+    profileMap.set(p.id, { id: p.id, pseudo: p.pseudo, photoUrl: p.photo_url ?? undefined })
+  }
+
+  const gameIds = [...new Set(data.map((r: Record<string, unknown>) => r.game_id as string))]
+  const { data: games } = await supabase
+    .from('games')
+    .select('id, buy_in')
+    .in('id', gameIds)
+  const gameMap = new Map<string, number>()
+  for (const g of games ?? []) {
+    gameMap.set(g.id as string, g.buy_in as number)
+  }
+
+  return data.map((r: Record<string, unknown>) => ({
+    id: r.id as string,
+    gameId: r.game_id as string,
+    groupId: (r.group_id as string | null) ?? undefined,
+    senderId: r.sender_id as string,
+    receiverId: r.receiver_id as string,
+    status: r.status as 'pending' | 'accepted' | 'declined',
+    createdAt: r.created_at as string,
+    senderProfile: profileMap.get(r.sender_id as string) ?? { id: r.sender_id as string, pseudo: '?', photoUrl: undefined },
+    gameBuyIn: gameMap.get(r.game_id as string),
+  }))
+}
+
+export async function fetchInviteById(inviteId: string): Promise<GameInviteWithDetails | null> {
+  if (!supabase) return null
+  const { data, error } = await supabase
+    .from('game_invites')
+    .select('*')
+    .eq('id', inviteId)
+    .single()
+  if (error || !data) return null
+
+  const r = data as Record<string, unknown>
+
+  const [{ data: sp }, { data: gd }] = await Promise.all([
+    supabase.from('profiles').select('id, pseudo, photo_url').eq('id', r.sender_id).single(),
+    supabase.from('games').select('id, buy_in').eq('id', r.game_id).single(),
+  ])
+
+  return {
+    id: r.id as string,
+    gameId: r.game_id as string,
+    groupId: (r.group_id as string | null) ?? undefined,
+    senderId: r.sender_id as string,
+    receiverId: r.receiver_id as string,
+    status: r.status as 'pending' | 'accepted' | 'declined',
+    createdAt: r.created_at as string,
+    senderProfile: sp
+      ? { id: sp.id, pseudo: sp.pseudo, photoUrl: sp.photo_url ?? undefined }
+      : { id: r.sender_id as string, pseudo: '?', photoUrl: undefined },
+    gameBuyIn: (gd as Record<string, unknown> | null)?.buy_in as number | undefined,
+  }
+}
+
+export async function acceptGameInvite(inviteId: string, gameId: string, playerId: string): Promise<void> {
+  if (!supabase) return
+  // join_game RPC already sets status = 'accepted' inside the function
+  const { error } = await supabase.rpc('join_game', {
+    p_game_id: gameId,
+    p_player_id: playerId,
+  })
+  if (error) {
+    console.error('acceptGameInvite join_game error:', error)
+    // Fallback: manually mark accepted if RPC failed
+    await supabase.from('game_invites').update({ status: 'accepted' }).eq('id', inviteId)
+  }
+}
+
+export async function declineGameInvite(inviteId: string): Promise<void> {
+  if (!supabase) return
+  const { error } = await supabase
+    .from('game_invites')
+    .update({ status: 'declined' })
+    .eq('id', inviteId)
+  if (error) console.error('declineGameInvite error:', error)
+}
+
+// Keep legacy alias
+export { declineGameInvite as declineInvite }
+
+export async function deleteInvite(inviteId: string): Promise<void> {
+  if (!supabase) return
+  const { error } = await supabase
+    .from('game_invites')
+    .delete()
+    .eq('id', inviteId)
+  if (error) console.error('deleteInvite error:', error)
+}
+
+export async function callJoinGame(gameId: string, playerId: string): Promise<void> {
+  if (!supabase) return
+  const { error } = await supabase.rpc('join_game', {
+    p_game_id: gameId,
+    p_player_id: playerId,
+  })
+  if (error) console.error('callJoinGame error:', error)
+}
+
+export function subscribeToInvites(
+  userId: string,
+  onChanged: () => void,
+): () => void {
+  if (!supabase) return () => {}
+  const channel = supabase
+    .channel(`invites-${userId}`)
+    .on('postgres_changes', {
+      event: 'INSERT',
+      schema: 'public',
+      table: 'game_invites',
+      filter: `receiver_id=eq.${userId}`,
+    }, onChanged)
+    .on('postgres_changes', {
+      event: 'UPDATE',
+      schema: 'public',
+      table: 'game_invites',
+      filter: `receiver_id=eq.${userId}`,
+    }, onChanged)
+    .subscribe()
+  return () => { supabase?.removeChannel(channel) }
 }

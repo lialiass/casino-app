@@ -85,3 +85,18 @@ export interface Friendship {
 export interface FriendshipWithProfile extends Friendship {
   otherProfile: ProfileSearchResult
 }
+
+export interface GameInvite {
+  id: string
+  gameId: string
+  groupId?: string
+  senderId: string
+  receiverId: string
+  status: 'pending' | 'accepted' | 'declined'
+  createdAt: string
+}
+
+export interface GameInviteWithDetails extends GameInvite {
+  senderProfile: ProfileSearchResult
+  gameBuyIn?: number
+}
