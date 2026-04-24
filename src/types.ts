@@ -41,3 +41,11 @@ export interface PlayerStats {
   totalRebuys: number
   totalEngaged: number
 }
+
+export interface Profile {
+  id: string
+  pseudo: string
+  email: string
+  createdAt: string
+  photoUrl?: string
+}

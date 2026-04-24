@@ -1,4 +1,7 @@
-import { HashRouter, Routes, Route, NavLink, useLocation } from 'react-router-dom'
+import { HashRouter, Routes, Route, NavLink, useLocation, Navigate } from 'react-router-dom'
+import { useAuth } from './contexts/AuthContext'
+import Login from './pages/Login'
+import Confirmed from './pages/Confirmed'
 import Home from './pages/Home'
 import Players from './pages/Players'
 import NewGame from './pages/NewGame'
@@ -6,6 +9,26 @@ import GameInProgress from './pages/GameInProgress'
 import Results from './pages/Results'
 import History from './pages/History'
 import Rankings from './pages/Rankings'
+import Account from './pages/Account'
+
+function RequireAuth({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth()
+  const location = useLocation()
+
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        <span style={{ color: 'var(--gold)', fontSize: '1rem' }}>Chargement…</span>
+      </div>
+    )
+  }
+
+  if (!user) {
+    return <Navigate to="/login" state={{ from: location }} replace />
+  }
+
+  return <>{children}</>
+}
 
 function NavBar() {
   const location = useLocation()
@@ -35,13 +58,17 @@ function NavBar() {
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.5 21H2V9h5.5v12zm7.25-18h-5.5v18h5.5V3zM22 11h-5.5v10H22V11z"/></svg>
         Classement
       </NavLink>
+      <NavLink to="/account" className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')}>
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z"/></svg>
+        Compte
+      </NavLink>
     </nav>
   )
 }
 
-export default function App() {
+function AuthenticatedApp() {
   return (
-    <HashRouter>
+    <>
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/players" element={<Players />} />
@@ -50,8 +77,28 @@ export default function App() {
         <Route path="/results/:id" element={<Results />} />
         <Route path="/history" element={<History />} />
         <Route path="/rankings" element={<Rankings />} />
+        <Route path="/account" element={<Account />} />
       </Routes>
       <NavBar />
+    </>
+  )
+}
+
+export default function App() {
+  return (
+    <HashRouter>
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route path="/confirmed" element={<Confirmed />} />
+        <Route
+          path="/*"
+          element={
+            <RequireAuth>
+              <AuthenticatedApp />
+            </RequireAuth>
+          }
+        />
+      </Routes>
     </HashRouter>
   )
 }

@@ -1,8 +1,22 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { Player, Game, GamePlayer, GameResult, PlayerStats } from './types';
 import { supabase, hasSupabase } from './lib/supabase';
+import { useAuth } from './contexts/AuthContext';
 
-const STORAGE_KEY = 'poker_manager_data';
+function getStorageKey(userId: string | null): string {
+  return userId ? `poker_manager_data_${userId}` : 'poker_manager_data';
+}
+
+function migrateLocalStorage(userId: string): void {
+  const oldKey = 'poker_manager_data';
+  const newKey = getStorageKey(userId);
+  if (localStorage.getItem(newKey)) return;
+  const oldData = localStorage.getItem(oldKey);
+  if (oldData) {
+    localStorage.setItem(newKey, oldData);
+    localStorage.removeItem(oldKey);
+  }
+}
 
 interface AppData {
   players: Player[];
@@ -39,14 +53,11 @@ function isStaleInProgress(g: { status: string; date: string }): boolean {
   return Date.now() - new Date(g.date).getTime() > IN_PROGRESS_MAX_AGE_MS;
 }
 
-function loadData(): AppData {
+function loadData(userId: string | null): AppData {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(getStorageKey(userId));
     if (raw) {
       const parsed = JSON.parse(raw) as AppData;
-      // On ne restaure que les parties in_progress récentes (< 24h).
-      // Les parties fantômes (crash/abandon d'une vieille session) sont filtrées.
-      // Les parties récentes sont conservées pour survivre à un simple refresh.
       return {
         players: parsed.players ?? [],
         games: (parsed.games ?? []).filter((g: { status: string; date: string }) => !isStaleInProgress(g)),
@@ -56,8 +67,8 @@ function loadData(): AppData {
   return { players: [], games: [] };
 }
 
-function saveData(data: AppData) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+function saveData(data: AppData, userId: string | null) {
+  localStorage.setItem(getStorageKey(userId), JSON.stringify(data));
 }
 
 function generateId(): string {
@@ -145,8 +156,13 @@ async function compressImage(file: File, maxSize = 500): Promise<Blob> {
 }
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
-  const [data, setData] = useState<AppData>(loadData);
-  const [isLoading, setIsLoading] = useState(hasSupabase);
+  const { user } = useAuth();
+  const userId = user?.id ?? null;
+  const userIdRef = useRef<string | null>(userId);
+  useEffect(() => { userIdRef.current = userId; }, [userId]);
+
+  const [data, setData] = useState<AppData>({ players: [], games: [] });
+  const [isLoading, setIsLoading] = useState(true);
   const skipNextSaveRef = useRef(false);
   // IDs des parties dont l'ecriture Supabase est en cours.
   // Permet d'ignorer les events realtime declenchés par nos propres writes
@@ -218,20 +234,33 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         games = prev.games;
       }
       const newData: AppData = { players, games };
-      saveData(newData);
+      saveData(newData, userIdRef.current);
       return newData;
     });
   }, []);
 
-  // Initial load from Supabase
+  // Load data when user logs in / out
   useEffect(() => {
-    if (!supabase) return;
+    if (!userId) {
+      setData({ players: [], games: [] });
+      setIsLoading(false);
+      return;
+    }
+    migrateLocalStorage(userId);
+    const local = loadData(userId);
+    skipNextSaveRef.current = true;
+    setData(local);
+    if (!supabase) {
+      setIsLoading(false);
+      return;
+    }
+    setIsLoading(true);
     fetchFromSupabase(true).finally(() => setIsLoading(false));
-  }, [fetchFromSupabase]);
+  }, [userId, fetchFromSupabase]);
 
-  // Realtime subscription
+  // Realtime subscription — only when authenticated
   useEffect(() => {
-    if (!supabase) return;
+    if (!supabase || !userId) return;
     const client = supabase;
     const channel = client
       .channel('db-changes')
@@ -239,7 +268,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'games' }, () => fetchFromSupabase(false))
       .subscribe();
     return () => { client.removeChannel(channel); };
-  }, [fetchFromSupabase]);
+  }, [userId, fetchFromSupabase]);
 
   // Persist to localStorage on every change
   useEffect(() => {
@@ -247,8 +276,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       skipNextSaveRef.current = false;
       return;
     }
-    saveData(data);
-  }, [data]);
+    saveData(data, userId);
+  }, [data, userId]);
 
   const addPlayer = useCallback((name: string) => {
     const player: Player = {
@@ -258,7 +287,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
     setData(prev => ({ ...prev, players: [...prev.players, player] }));
     if (supabase) {
-      supabase.from('players').insert(playerToDb(player))
+      supabase.from('players').insert({ ...playerToDb(player), created_by: userIdRef.current })
         .then(({ error }) => {
           if (error) {
             console.error('addPlayer Supabase error:', error);
@@ -355,7 +384,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (supabase) {
       pendingGameWritesRef.current.add(game.id);
       try {
-        const { error } = await supabase.from('games').insert(gameToDb(game));
+        const { error } = await supabase.from('games').insert({ ...gameToDb(game), created_by: userIdRef.current });
         if (error) console.error('createGame Supabase error:', error);
       } finally {
         pendingGameWritesRef.current.delete(game.id);
