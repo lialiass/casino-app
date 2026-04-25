@@ -29,8 +29,19 @@
       (function () {
         var path = window.location.pathname;
         var search = window.location.search;
+        var hash = window.location.hash; // inclut le '#' initial
+
         if (path === '/reset-password') {
-          window.location.replace('/' + search + '#/reset-password');
+          if (hash && hash.indexOf('access_token') !== -1) {
+            // Implicit flow : /reset-password#access_token=xxx&type=recovery
+            // → /#/reset-password#access_token=xxx&type=recovery
+            // AuthContext détectera le double hash et appellera setSession manuellement.
+            window.location.replace('/#/reset-password' + hash);
+          } else {
+            // PKCE flow : /reset-password?code=xxx
+            // → /?code=xxx#/reset-password  (SDK lit ?code depuis window.location.search)
+            window.location.replace('/' + search + '#/reset-password');
+          }
         } else if (path === '/confirmed') {
           window.location.replace('/' + search + '#/confirmed');
         }

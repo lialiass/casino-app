@@ -45,29 +45,56 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return
     }
 
-    // onAuthStateChange est la source de vérité unique.
-    // Il se déclenche immédiatement avec l'état courant (INITIAL_SESSION),
-    // puis pour chaque changement (PASSWORD_RECOVERY, SIGNED_IN, etc.).
-    // On NE fait PAS getSession() séparément pour éviter un double-setState.
+    // ── Listener principal ────────────────────────────────────────────────────
+    // Source de vérité pour tous les événements auth (INITIAL_SESSION, SIGNED_IN,
+    // PASSWORD_RECOVERY, SIGNED_OUT, ...). setLoading(false) à chaque event reçu.
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       // --- LOGS TEMPORAIRES (debug recovery flow) ---
       console.log('[Auth event]', event, session?.user?.email ?? 'no user')
 
       if (event === 'PASSWORD_RECOVERY') {
-        // Token de réinitialisation valide reçu depuis l'email Supabase.
-        // Marquer en mémoire ET en sessionStorage (survit à un rechargement).
         setRecovery(true)
       } else if (event === 'SIGNED_OUT') {
         setRecovery(false)
       }
-      // SIGNED_IN / TOKEN_REFRESHED / USER_UPDATED :
-      // On NE remet PAS isRecovery à false — c'est ResetPassword qui appelle signOut.
+      // SIGNED_IN déclenché par setSession ci-dessous ne remet PAS isRecovery à false.
 
       setSession(session)
       setUser(session?.user ?? null)
-      // Premier event reçu → résolution initiale terminée
       setLoading(false)
     })
+
+    // ── Double hash (HashRouter + Supabase implicit flow) ─────────────────────
+    // index.html convertit /reset-password#access_token=xxx en :
+    //   /#/reset-password#access_token=xxx&refresh_token=yyy&type=recovery
+    // Le SDK Supabase ne parse pas le 2ème hash — on le fait manuellement.
+    const fullHash = window.location.hash          // "#/reset-password#access_token=..."
+    const secondHashIdx = fullHash.indexOf('#', 1) // position du 2ème '#'
+
+    if (secondHashIdx !== -1) {
+      const tokenFragment = fullHash.slice(secondHashIdx + 1) // "access_token=xxx&..."
+      const params = new URLSearchParams(tokenFragment)
+      const accessToken  = params.get('access_token')
+      const refreshToken = params.get('refresh_token')
+      const type         = params.get('type')
+
+      if (accessToken && refreshToken && type === 'recovery') {
+        // 1. Nettoyer l'URL — supprimer les tokens exposés dans la barre d'adresse
+        window.history.replaceState(null, '', '/#/reset-password')
+        // 2. Marquer comme session recovery AVANT que setLoading(false) soit appelé
+        setRecovery(true)
+        // 3. Restaurer la session Supabase à partir des tokens
+        //    → déclenche SIGNED_IN dans le listener ci-dessus → setLoading(false)
+        supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken })
+          .then(({ error }) => {
+            if (error) {
+              // Token expiré ou invalide — INITIAL_SESSION aura déjà appelé setLoading(false)
+              console.warn('[Auth] setSession failed:', error.message)
+              setRecovery(false)
+            }
+          })
+      }
+    }
 
     return () => subscription.unsubscribe()
   }, [])
