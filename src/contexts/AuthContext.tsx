@@ -49,9 +49,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Source de vérité pour tous les événements auth (INITIAL_SESSION, SIGNED_IN,
     // PASSWORD_RECOVERY, SIGNED_OUT, ...). setLoading(false) à chaque event reçu.
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      // --- LOGS TEMPORAIRES (debug recovery flow) ---
-      console.log('[Auth event]', event, session?.user?.email ?? 'no user')
-
       if (event === 'PASSWORD_RECOVERY') {
         setRecovery(true)
       } else if (event === 'SIGNED_OUT') {

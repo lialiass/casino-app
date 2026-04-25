@@ -80,12 +80,9 @@ export default function Login() {
       const { error } = await authSignUp(email, password, pseudo.trim())
       if (error) {
         setError(error.message)
-      } else {
-        // Le trigger handle_new_user crée le profil avec le bon pseudo via raw_user_meta_data.
-        // Si session immédiate (pas de confirmation email) → useEffect redirige vers '/'.
-        // Sinon, on demande à l'utilisateur de confirmer son email.
-        setInfo('Compte créé ! Vérifie tes emails pour confirmer ton inscription.')
       }
+      // Succès : Supabase retourne une session immédiate (confirmation email désactivée).
+      // onAuthStateChange → SIGNED_IN → user défini → useEffect navigue vers '/'.
     } catch {
       setError('Erreur lors de la création du compte.')
     } finally {
@@ -179,7 +176,6 @@ export default function Login() {
               autoComplete="new-password"
             />
             {error && <p className="login-error">{error}</p>}
-            {info && <p className="login-info">{info}</p>}
             <button type="submit" className="btn btn-gold" disabled={loading}>
               {loading ? 'Création…' : 'Créer un compte'}
             </button>

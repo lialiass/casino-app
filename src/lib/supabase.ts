@@ -16,12 +16,13 @@ export async function authSignIn(email: string, password: string) {
 
 export async function authSignUp(email: string, password: string, pseudo: string) {
   if (!supabase) throw new Error('Supabase non configuré')
+  // La confirmation email est désactivée dans Supabase Dashboard.
+  // Supabase retourne une session immédiate → onAuthStateChange → SIGNED_IN.
   return supabase.auth.signUp({
     email,
     password,
     options: {
-      data: { pseudo },
-      emailRedirectTo: window.location.origin + '/#/confirmed',
+      data: { pseudo }, // transmis au trigger handle_new_user via raw_user_meta_data
     },
   })
 }
