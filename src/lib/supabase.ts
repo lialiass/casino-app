@@ -14,15 +14,26 @@ export async function authSignIn(email: string, password: string) {
   return supabase.auth.signInWithPassword({ email, password })
 }
 
-export async function authSignUp(email: string, password: string) {
+export async function authSignUp(email: string, password: string, pseudo: string) {
   if (!supabase) throw new Error('Supabase non configuré')
-  return supabase.auth.signUp({ email, password })
+  return supabase.auth.signUp({
+    email,
+    password,
+    options: {
+      data: { pseudo },
+      emailRedirectTo: window.location.origin + '/#/confirmed',
+    },
+  })
 }
 
 export async function authResetPassword(email: string) {
   if (!supabase) throw new Error('Supabase non configuré')
+  // Supabase redirige vers /reset-password?code=xxx (PKCE).
+  // Le script dans index.html transforme ce chemin en /?code=xxx#/reset-password
+  // avant que React ne charge, pour que HashRouter route correctement
+  // et que le SDK lise le code PKCE depuis window.location.search.
   return supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${window.location.origin}/#/reset-password`,
+    redirectTo: window.location.origin + '/reset-password',
   })
 }
 
@@ -312,8 +323,6 @@ export async function createGroup(
     owner_id: user.id,
     photo_url: null as string | null,
   }
-  console.log('[createGroup] groups insert payload:', groupPayload)
-
   const { data: groupData, error } = await supabase
     .from('groups')
     .insert(groupPayload)
@@ -327,8 +336,6 @@ export async function createGroup(
     { group_id: group.id, user_id: user.id, role: 'owner' },
     ...memberIds.filter(id => id !== user.id).map(id => ({ group_id: group.id, user_id: id, role: 'member' })),
   ]
-  console.log('[createGroup] group_members insert payload:', membersPayload)
-
   const { error: memberError } = await supabase.from('group_members').insert(membersPayload)
   if (memberError) console.error('createGroup group_members insert error:', memberError)
 

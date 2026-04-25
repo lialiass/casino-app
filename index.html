@@ -3,7 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
-    <link rel="apple-touch-icon" href="/icon.svg" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+    <!-- iOS home screen icon — doit être PNG, pas SVG -->
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#1a1a2e" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -13,6 +15,27 @@
     <title>Poker Manager</title>
   </head>
   <body>
+    <!--
+      HashRouter utilise le fragment (#) pour le routing.
+      Supabase redirige vers /reset-password?code=xxx (PKCE) ou /confirmed?...
+      Vercel sert index.html pour ces chemins (rewrite /(.*) → /index.html).
+      Ce script transforme les paths Supabase en URLs compatibles HashRouter
+      AVANT que React ne se charge, pour que le SDK lise les query params correctement.
+
+      /reset-password?code=xxx  →  /?code=xxx#/reset-password
+      /confirmed?token_hash=xxx →  /?token_hash=xxx#/confirmed
+    -->
+    <script>
+      (function () {
+        var path = window.location.pathname;
+        var search = window.location.search;
+        if (path === '/reset-password') {
+          window.location.replace('/' + search + '#/reset-password');
+        } else if (path === '/confirmed') {
+          window.location.replace('/' + search + '#/confirmed');
+        }
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
