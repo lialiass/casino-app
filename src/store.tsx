@@ -255,18 +255,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Load data when user logs in / out
   useEffect(() => {
     if (!userId) {
+      // Déconnexion : vider le state immédiatement
       setData({ players: [], games: [] });
       setIsLoading(false);
       return;
     }
-    migrateLocalStorage(userId);
-    const local = loadData(userId);
-    skipNextSaveRef.current = true;
-    setData(local);
     if (!supabase) {
+      // Mode offline uniquement : localStorage est la seule source de vérité
+      migrateLocalStorage(userId);
+      const local = loadData(userId);
+      skipNextSaveRef.current = true;
+      setData(local);
       setIsLoading(false);
       return;
     }
+    // Mode Supabase : NE JAMAIS pré-remplir depuis localStorage.
+    // Afficher des données locales avant que Supabase réponde exposerait
+    // des données potentiellement étrangères (autre compte, migration anonyme).
+    // La RLS garantit que Supabase ne retourne que les données de l'utilisateur courant.
+    // On part de zéro et on attend la réponse serveur.
     setIsLoading(true);
     fetchFromSupabase(true).finally(() => setIsLoading(false));
   }, [userId, fetchFromSupabase]);
