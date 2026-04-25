@@ -17,6 +17,9 @@
   --shadow: 0 4px 24px rgba(0,0,0,0.6);
   --radius: 12px;
   --radius-sm: 8px;
+  /* iOS safe areas — Dynamic Island / home bar */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 * {
@@ -43,8 +46,10 @@ body {
 .page {
   flex: 1;
   padding: 16px;
+  /* Dynamic Island / status bar — pages sans header sticky */
+  padding-top: calc(16px + var(--safe-top));
   /* 80px nav + home bar iOS */
-  padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(80px + var(--safe-bottom));
   max-width: 480px;
   margin: 0 auto;
   width: 100%;
@@ -55,7 +60,10 @@ body {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 16px;
+  /* padding-top absorbe la Dynamic Island / status bar.
+     Le header colle à top:0 du viewport, son contenu
+     reste visible sous l'encoche grâce au padding-top. */
+  padding: calc(16px + var(--safe-top)) 16px 16px;
   background: var(--bg-card);
   border-bottom: 1px solid var(--border-gold);
   position: sticky;
@@ -99,7 +107,7 @@ body {
   max-width: 480px;
   margin: 0 auto;
   /* iOS home bar (iPhone X+) */
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-bottom: var(--safe-bottom);
 }
 
 .nav-item {
@@ -1072,7 +1080,8 @@ input[type=number]::-webkit-outer-spin-button {
 /* Toast notification */
 .invite-toast {
   position: fixed;
-  top: 16px;
+  /* Apparaît sous la Dynamic Island / status bar */
+  top: calc(var(--safe-top) + 12px);
   left: 50%;
   transform: translateX(-50%);
   background: #166534;
@@ -1095,6 +1104,6 @@ input[type=number]::-webkit-outer-spin-button {
 }
 
 @keyframes toast-in {
-  from { opacity: 0; transform: translateX(-50%) translateY(-8px); }
+  from { opacity: 0; transform: translateX(-50%) translateY(-6px); }
   to   { opacity: 1; transform: translateX(-50%) translateY(0); }
 }

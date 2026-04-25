@@ -110,8 +110,9 @@ export default function Account({ embedded = false }: { embedded?: boolean }) {
   }
 
   async function handleShare() {
-    const appUrl = window.location.origin
+    const appUrl = 'https://playpokermanager.fr'
     if (navigator.share) {
+      // Web Share API — fonctionne nativement dans Capacitor iOS / Android
       try {
         await navigator.share({
           title: 'Poker Manager',
@@ -119,14 +120,25 @@ export default function Account({ embedded = false }: { embedded?: boolean }) {
           url: appUrl,
         })
       } catch {
-        // L'utilisateur a annulé ou le partage a échoué — pas d'action requise
+        // L'utilisateur a annulé — pas d'action requise
       }
     } else {
-      // Fallback desktop : copie dans le presse-papiers
-      navigator.clipboard.writeText(appUrl).then(() => {
-        setCopied(true)
-        setTimeout(() => setCopied(false), 2500)
-      })
+      // Fallback : copie dans le presse-papiers (desktop / navigateurs sans Share API)
+      try {
+        await navigator.clipboard.writeText(appUrl)
+      } catch {
+        // Fallback ultime si clipboard API indisponible (contexte non-sécurisé)
+        const el = document.createElement('textarea')
+        el.value = appUrl
+        el.style.position = 'fixed'
+        el.style.opacity = '0'
+        document.body.appendChild(el)
+        el.select()
+        document.execCommand('copy')
+        document.body.removeChild(el)
+      }
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2500)
     }
   }
 
