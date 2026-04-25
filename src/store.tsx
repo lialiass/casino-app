@@ -180,13 +180,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const fetchFromSupabase = useCallback(async (isInitialLoad = false) => {
     if (!supabase) return;
 
-    // GUARD CONFIDENTIALITÉ : ne jamais charger de données sans utilisateur authentifié.
-    // Empêche tout chargement en cas de race condition entre logout et callback realtime.
-    // La RLS Supabase filtre côté serveur ; ce guard est une défense en profondeur côté client.
+    // GUARD CONFIDENTIALITÉ : ne jamais charger sans utilisateur authentifié.
     if (!userIdRef.current) {
       setData({ players: [], games: [] });
       return;
     }
+
+    // Capturer l'userId AVANT l'appel async pour éviter toute race condition
+    const currentUserId = userIdRef.current;
 
     const [
       { data: pRows, error: pErr },
@@ -197,32 +198,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     ]);
     if (pErr) console.error('fetchFromSupabase players error:', pErr);
     if (gErr) console.error('fetchFromSupabase games error:', gErr);
-    if (!pRows && !gRows) return;
+
+    // Si les deux ont échoué, ne rien modifier
+    if (pRows === null && gRows === null) return;
+
+    // Si l'utilisateur a changé pendant l'appel async, ignorer la réponse
+    if (userIdRef.current !== currentUserId) return;
+
     skipNextSaveRef.current = true;
     setData(prev => {
-      // Supabase est la source de vérité — la RLS garantit que les rows retournés
-      // appartiennent exclusivement à l'utilisateur connecté.
-      // Fallback sur prev uniquement en cas d'erreur réseau (pRows === null),
-      // jamais pour compenser un 0 row légitime (nouveau compte = 0 joueurs).
+      // FILTRE CLIENT STRICT — double protection indépendante de la RLS.
+      // On ne conserve QUE les joueurs dont user_id correspond à l'utilisateur courant.
+      // Les joueurs legacy (user_id IS NULL) ou appartenant à un autre compte
+      // sont filtrés ici côté client, même si la RLS les laissait passer.
+      // En cas d'erreur Supabase (pRows === null) : tableau vide, jamais de fallback.
       const players = pRows !== null
-        ? pRows.map(r => dbToPlayer(r as Record<string, unknown>))
-        : prev.players;
-      // Pour les games : au chargement initial on ne restaure jamais une partie in_progress
-      // (évite l'affichage fantôme d'une ancienne session).
-      // En realtime, on accepte tout (une partie peut être en cours dans la session active).
+        ? pRows
+            .map(r => dbToPlayer(r as Record<string, unknown>))
+            .filter(p => p.userId === currentUserId)
+        : [];
+
+      // Pour les games : RLS fait autorité côté serveur.
+      // En cas d'erreur Supabase (gRows === null) : tableau vide, jamais de fallback.
       let games: Game[];
-      if (gRows) {
+      if (gRows !== null) {
         const mapped = gRows.map(r => dbToGame(r as Record<string, unknown>));
-        let filtered: Game[];
-        if (isInitialLoad) {
-          // On ne filtre que les parties in_progress trop vieilles (> 24h = sessions mortes).
-          filtered = mapped.filter(g => !isStaleInProgress(g));
-        } else {
-          filtered = mapped;
-        }
-        // Si une ecriture locale est en cours (pendingGameWritesRef),
-        // on preserve la version locale de cette partie plutot que d'ecraser
-        // avec la version distante potentiellement obsolete.
+        const filtered = isInitialLoad
+          ? mapped.filter(g => !isStaleInProgress(g))
+          : mapped;
+
+        // Préserver les parties dont l'écriture Supabase est encore en cours
         if (pendingGameWritesRef.current.size > 0) {
           games = filtered.map(remoteGame => {
             if (pendingGameWritesRef.current.has(remoteGame.id)) {
@@ -231,7 +236,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             }
             return remoteGame;
           });
-          // Ajouter les parties locales pending qui n'ont pas encore atteint Supabase
           prev.games.forEach(localGame => {
             if (
               pendingGameWritesRef.current.has(localGame.id) &&
@@ -244,10 +248,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           games = filtered;
         }
       } else {
-        games = prev.games;
+        games = [];
       }
+
       const newData: AppData = { players, games };
-      saveData(newData, userIdRef.current);
+      saveData(newData, currentUserId);
       return newData;
     });
   }, []);
@@ -270,10 +275,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     // Mode Supabase : NE JAMAIS pré-remplir depuis localStorage.
-    // Afficher des données locales avant que Supabase réponde exposerait
-    // des données potentiellement étrangères (autre compte, migration anonyme).
-    // La RLS garantit que Supabase ne retourne que les données de l'utilisateur courant.
-    // On part de zéro et on attend la réponse serveur.
+    // Réinitialiser explicitement à vide AVANT l'appel async pour garantir
+    // qu'aucune donnée étrangère n'est visible pendant le chargement.
+    setData({ players: [], games: [] });
     setIsLoading(true);
     fetchFromSupabase(true).finally(() => setIsLoading(false));
   }, [userId, fetchFromSupabase]);
@@ -304,6 +308,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       id: generateId(),
       name: name.trim(),
       createdAt: new Date().toISOString(),
+      userId: userIdRef.current ?? undefined, // scope strict : user_id = auth.uid()
     };
     setData(prev => ({ ...prev, players: [...prev.players, player] }));
     if (supabase) {
