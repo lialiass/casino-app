@@ -10,8 +10,10 @@ export default function Login() {
   const navigate = useNavigate()
   const location = useLocation()
 
-  // Préremplir l'email si redirigé depuis ResetPassword (state.email)
-  const prefillEmail = (location.state as { email?: string } | null)?.email ?? ''
+  // Préremplir email + message si redirigé depuis ResetPassword
+  const locationState = location.state as { email?: string; message?: string } | null
+  const prefillEmail   = locationState?.email   ?? ''
+  const prefillMessage = locationState?.message ?? ''
 
   const [tab, setTab] = useState<Tab>('login')
   const [email, setEmail] = useState(prefillEmail)
@@ -133,6 +135,7 @@ export default function Login() {
               required
               autoComplete="current-password"
             />
+            {prefillMessage && <p className="login-info">{prefillMessage}</p>}
             {error && <p className="login-error">{error}</p>}
             <button type="submit" className="btn btn-gold" disabled={loading}>
               {loading ? 'Connexion…' : 'Se connecter'}

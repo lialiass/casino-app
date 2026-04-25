@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { authUpdatePassword } from '../lib/supabase'
@@ -7,34 +7,16 @@ export default function ResetPassword() {
   const navigate = useNavigate()
   const { user, signOut, isRecoverySession, loading: authLoading } = useAuth()
 
-  const [password, setPassword]   = useState('')
-  const [confirm, setConfirm]     = useState('')
-  const [error, setError]         = useState('')
+  const [password, setPassword]     = useState('')
+  const [confirm, setConfirm]       = useState('')
+  const [error, setError]           = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const [success, setSuccess]     = useState(false)
 
-  // ── Succès — vérifié EN PREMIER pour éviter le flash "lien invalide" ────────
-  // signOut() déclenche SIGNED_OUT → isRecoverySession=false AVANT la navigation.
-  // Si success=true est vérifié après isRecoverySession, on voit "lien invalide".
-  // En le vérifiant ici, le composant reste sur l'écran succès jusqu'au navigate().
-  if (success) {
-    return (
-      <div className="login-page">
-        <div className="login-card" style={{ textAlign: 'center', gap: 24 }}>
-          <div style={{ fontSize: '3.5rem', lineHeight: 1 }}>✅</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <h1 className="login-title">Mot de passe modifié !</h1>
-            <p style={{ color: 'var(--text-dim)', fontSize: '0.95rem', lineHeight: 1.5 }}>
-              Ton mot de passe a bien été mis à jour.
-            </p>
-            <p style={{ color: 'var(--text-dim)', fontSize: '0.9rem', lineHeight: 1.5 }}>
-              Redirection vers la connexion…
-            </p>
-          </div>
-        </div>
-      </div>
-    )
-  }
+  // Ref synchrone (pas de re-render) — verrouillé à true juste avant signOut().
+  // Empêche le flash "Lien invalide" : signOut() déclenche SIGNED_OUT →
+  // isRecoverySession=false AVANT que navigate() démonte le composant.
+  // Avec redirectingRef.current=true, le check !isRecoverySession est ignoré.
+  const redirectingRef = useRef(false)
 
   // ── Attente de la résolution auth ─────────────────────────────────────────
   if (authLoading) {
@@ -49,9 +31,9 @@ export default function ResetPassword() {
   }
 
   // ── Token invalide ou expiré ──────────────────────────────────────────────
-  // Si l'auth est chargée mais qu'il n'y a pas de session recovery valide,
-  // le lien est expiré, déjà utilisé, ou le token est incorrect.
-  if (!isRecoverySession) {
+  // redirectingRef.current court-circuite ce check après un reset réussi :
+  // le composant reste rendu normalement jusqu'à ce que navigate() le démonte.
+  if (!isRecoverySession && !redirectingRef.current) {
     return (
       <div className="login-page">
         <div className="login-card" style={{ textAlign: 'center', gap: 20 }}>
@@ -99,22 +81,29 @@ export default function ResetPassword() {
         return
       }
 
-      // Capturer l'email AVANT signOut (user devient null après)
+      // 1. Capturer l'email AVANT signOut (user devient null après)
       const email = user?.email ?? ''
 
-      // Nettoyer sessionStorage immédiatement
+      // 2. Nettoyer le sessionStorage
       sessionStorage.removeItem('poker_password_recovery')
 
-      // Afficher l'écran succès — vérifié EN PREMIER dans le render,
-      // donc isRecoverySession=false (déclenché par signOut) ne causera pas de flash.
-      setSuccess(true)
+      // 3. Verrouiller le render AVANT signOut — synchrone, aucun re-render.
+      //    Le prochain rendu causé par SIGNED_OUT passera le check !isRecoverySession.
+      redirectingRef.current = true
 
-      // signOut + navigate après 1 seconde pour que l'utilisateur voie le message
-      setTimeout(async () => {
-        await signOut()
-        navigate('/login', { replace: true, state: { email } })
-      }, 1000)
+      // 4. Déconnecter
+      await signOut()
+
+      // 5. Naviguer vers login avec message de confirmation
+      navigate('/login', {
+        replace: true,
+        state: {
+          email,
+          message: 'Mot de passe modifié avec succès. Connecte-toi avec ton nouveau mot de passe.',
+        },
+      })
     } catch {
+      redirectingRef.current = false
       setError('Une erreur est survenue. Réessaie.')
     } finally {
       setSubmitting(false)
