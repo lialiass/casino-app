@@ -15,8 +15,13 @@
   --border: #1e2d3d;
   --border-gold: #d4af3740;
   --shadow: 0 4px 24px rgba(0,0,0,0.6);
-  --radius: 12px;
-  --radius-sm: 8px;
+  --radius: 14px;
+  --radius-sm: 10px;
+  --radius-lg: 20px;
+  /* Shadows */
+  --shadow-card: 0 2px 16px rgba(0,0,0,0.5);
+  --shadow-gold: 0 4px 20px rgba(212,175,55,0.22);
+  --shadow-green: 0 4px 16px rgba(34,197,94,0.18);
   /* iOS safe areas — Dynamic Island / home bar */
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
@@ -33,7 +38,12 @@ body {
   background: var(--bg);
   color: var(--text);
   min-height: 100vh;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  /* P0 — iOS app feel */
+  overscroll-behavior: none;           /* supprime le rubber-band WebView */
+  -webkit-tap-highlight-color: transparent; /* supprime le flash bleu au tap */
+  touch-action: manipulation;          /* retire le délai 300ms sur tap */
 }
 
 #root {
@@ -49,10 +59,12 @@ body {
   /* Dynamic Island / status bar — pages sans header sticky */
   padding-top: calc(16px + var(--safe-top));
   /* 80px nav + home bar iOS */
-  padding-bottom: calc(80px + var(--safe-bottom));
+  padding-bottom: calc(88px + var(--safe-bottom));
   max-width: 480px;
   margin: 0 auto;
   width: 100%;
+  /* Scroll fluide dans WebView iOS */
+  -webkit-overflow-scrolling: touch;
 }
 
 /* Header */
@@ -60,11 +72,12 @@ body {
   display: flex;
   align-items: center;
   gap: 12px;
-  /* padding-top absorbe la Dynamic Island / status bar.
-     Le header colle à top:0 du viewport, son contenu
-     reste visible sous l'encoche grâce au padding-top. */
-  padding: calc(16px + var(--safe-top)) 16px 16px;
-  background: var(--bg-card);
+  /* padding-top absorbe la Dynamic Island / status bar */
+  padding: calc(14px + var(--safe-top)) 16px 14px;
+  /* P1 — glass effect natif iOS */
+  background: rgba(15, 22, 35, 0.88);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   border-bottom: 1px solid var(--border-gold);
   position: sticky;
   top: 0;
@@ -100,8 +113,11 @@ body {
   bottom: 0;
   left: 0;
   right: 0;
-  background: var(--bg-card);
-  border-top: 1px solid var(--border-gold);
+  /* P1 — glass effect comme iOS tab bar */
+  background: rgba(15, 22, 35, 0.92);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-top: 1px solid rgba(212, 175, 55, 0.15);
   display: flex;
   z-index: 100;
   max-width: 480px;
@@ -115,22 +131,38 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 3px;
+  gap: 4px;
+  /* P0 — touch target min 44pt */
   padding: 10px 4px;
+  min-height: 56px;
   background: none;
   border: none;
   color: var(--text-muted);
   cursor: pointer;
   text-decoration: none;
-  font-size: 0.65rem;
+  font-size: 0.68rem;
   font-weight: 600;
-  letter-spacing: 0.3px;
-  text-transform: uppercase;
-  transition: color 0.15s;
+  letter-spacing: 0.2px;
+  transition: color 0.2s;
+  position: relative;
 }
 
 .nav-item.active {
   color: var(--gold);
+}
+
+/* P1 — indicateur actif : pilule dorée derrière l'icône */
+.nav-item.active::before {
+  content: '';
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 36px;
+  height: 28px;
+  background: rgba(212, 175, 55, 0.12);
+  border-radius: 10px;
+  pointer-events: none;
 }
 
 .nav-item svg {
@@ -145,11 +177,14 @@ body {
   border-radius: var(--radius);
   padding: 16px;
   margin-bottom: 12px;
+  /* P1 — profondeur */
+  box-shadow: var(--shadow-card);
 }
 
 .card-gold {
   border-color: var(--border-gold);
   background: linear-gradient(135deg, #0f1623, #0d1a0e);
+  box-shadow: 0 2px 20px rgba(212,175,55,0.07);
 }
 
 /* Buttons */
@@ -158,35 +193,42 @@ body {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 14px 20px;
-  border-radius: var(--radius);
+  padding: 15px 20px;
+  border-radius: var(--radius-lg);
   border: none;
   font-size: 1rem;
   font-weight: 700;
   cursor: pointer;
-  transition: opacity 0.15s, transform 0.1s;
+  transition: opacity 0.15s, transform 0.12s;
   text-decoration: none;
   letter-spacing: 0.3px;
   width: 100%;
+  /* P0 — touch target minimum 44pt */
+  min-height: 50px;
 }
 
 .btn:active {
-  transform: scale(0.97);
+  transform: scale(0.96);
+  opacity: 0.88;
 }
 
 .btn-gold {
   background: linear-gradient(135deg, var(--gold), var(--gold-light));
   color: #080c14;
+  /* P1 — glow subtil */
+  box-shadow: var(--shadow-gold);
 }
 
 .btn-green {
   background: linear-gradient(135deg, var(--green-dark), var(--green));
   color: #fff;
+  box-shadow: var(--shadow-green);
 }
 
 .btn-red {
   background: linear-gradient(135deg, var(--red-dark), var(--red));
   color: #fff;
+  box-shadow: 0 4px 16px rgba(239,68,68,0.2);
 }
 
 .btn-outline {
@@ -202,9 +244,11 @@ body {
 }
 
 .btn-sm {
-  padding: 8px 14px;
+  padding: 9px 16px;
   font-size: 0.85rem;
   width: auto;
+  min-height: 44px;
+  border-radius: var(--radius);
 }
 
 .btn:disabled {
@@ -258,20 +302,23 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px;
+  /* P0 — safe area pour Dynamic Island + home bar */
+  padding: calc(20px + var(--safe-top)) 20px calc(20px + var(--safe-bottom));
   background: var(--bg);
 }
 
 .login-card {
   background: var(--bg-card);
   border: 1px solid var(--border-gold);
-  border-radius: var(--radius);
-  padding: 32px 24px;
+  /* P1 — radius plus généreux, plus iOS */
+  border-radius: var(--radius-lg);
+  padding: 36px 24px;
   width: 100%;
   max-width: 380px;
   display: flex;
   flex-direction: column;
   gap: 20px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.6), 0 0 0 1px rgba(212,175,55,0.08);
 }
 
 .login-logo {
@@ -323,18 +370,23 @@ body {
 
 .login-form input {
   width: 100%;
-  padding: 14px 16px;
+  padding: 15px 16px;
   background: var(--bg);
-  border: 1px solid var(--border);
+  border: 1.5px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--text);
-  font-size: 1rem;
+  /* P0 — 16px minimum pour éviter le zoom iOS au focus */
+  font-size: 16px;
   outline: none;
-  transition: border-color 0.15s;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  /* P0 — touch target confortable */
+  min-height: 52px;
 }
 
 .login-form input:focus {
   border-color: var(--gold);
+  /* P1 — glow doré subtil */
+  box-shadow: 0 0 0 3px rgba(212,175,55,0.15);
 }
 
 .login-form input::placeholder {
@@ -392,17 +444,20 @@ body {
 .input {
   width: 100%;
   background: var(--bg);
-  border: 1px solid var(--border);
+  border: 1.5px solid var(--border);
   border-radius: var(--radius-sm);
-  padding: 12px 14px;
+  padding: 14px 16px;
   color: var(--text);
-  font-size: 1rem;
+  /* P0 — 16px minimum pour éviter le zoom iOS */
+  font-size: 16px;
   outline: none;
-  transition: border-color 0.15s;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  min-height: 50px;
 }
 
 .input:focus {
   border-color: var(--gold);
+  box-shadow: 0 0 0 3px rgba(212,175,55,0.15);
 }
 
 .input::placeholder {
@@ -439,12 +494,15 @@ body {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px;
+  /* P0 — touch target confortable pour le pouce */
+  padding: 13px 14px;
+  min-height: 60px;
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius);
   margin-bottom: 8px;
   transition: border-color 0.15s;
+  box-shadow: var(--shadow-card);
 }
 
 .player-item.selected {
@@ -453,8 +511,9 @@ body {
 }
 
 .player-avatar {
-  width: 40px;
-  height: 40px;
+  /* P0 — HIG Apple 44pt minimum */
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   background: var(--bg-felt);
   border: 2px solid var(--border-gold);
@@ -1106,4 +1165,67 @@ input[type=number]::-webkit-outer-spin-button {
 @keyframes toast-in {
   from { opacity: 0; transform: translateX(-50%) translateY(-6px); }
   to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* ── iOS / Touch device overrides ───────────────────────────────────────────
+   Sur touch, les états :hover "collent" après le tap.
+   On les désactive pour tous les éléments qui ont un :hover déclaré. */
+@media (hover: none) {
+  .card:hover,
+  .invite-card:hover,
+  .history-item:hover,
+  .rank-item:hover,
+  .group-card:hover,
+  .player-item:hover,
+  .checkbox-player:hover {
+    border-color: var(--border);
+    background: var(--bg-card);
+  }
+  .btn-gold:hover,
+  .btn-green:hover,
+  .btn-red:hover,
+  .btn-outline:hover,
+  .btn-ghost:hover {
+    opacity: 1;
+  }
+  .profile-bar-logout:hover {
+    color: var(--text-dim);
+    border-color: var(--border);
+  }
+  .login-forgot-link:hover {
+    color: var(--text-muted);
+  }
+}
+
+/* ── Tap target global — liens et petits boutons ───────────────────────────*/
+.login-forgot-link {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── Header action buttons ─────────────────────────────────────────────────*/
+.header-action-btn {
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── Invite card — plus de profondeur ──────────────────────────────────────*/
+.invite-card {
+  box-shadow: var(--shadow-card);
+}
+
+/* ── History items — plus de profondeur ────────────────────────────────────*/
+.history-item {
+  box-shadow: var(--shadow-card);
+}
+
+/* ── Scrollbar masquée dans la WebView ─────────────────────────────────────*/
+::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
