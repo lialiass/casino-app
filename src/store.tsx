@@ -179,6 +179,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // isInitialLoad=false : mise à jour realtime, on garde tout
   const fetchFromSupabase = useCallback(async (isInitialLoad = false) => {
     if (!supabase) return;
+
+    // GUARD CONFIDENTIALITÉ : ne jamais charger de données sans utilisateur authentifié.
+    // Empêche tout chargement en cas de race condition entre logout et callback realtime.
+    // La RLS Supabase filtre côté serveur ; ce guard est une défense en profondeur côté client.
+    if (!userIdRef.current) {
+      setData({ players: [], games: [] });
+      return;
+    }
+
     const [
       { data: pRows, error: pErr },
       { data: gRows, error: gErr },
@@ -191,14 +200,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!pRows && !gRows) return;
     skipNextSaveRef.current = true;
     setData(prev => {
-      // Pour les joueurs : Supabase est la source de vérité si elle retourne des données.
-      // Si Supabase retourne une liste vide et qu'on a des joueurs en local, on garde les locaux
-      // (protection contre un problème temporaire de RLS ou de connexion).
-      const players = (pRows && pRows.length > 0)
+      // Supabase est la source de vérité — la RLS garantit que les rows retournés
+      // appartiennent exclusivement à l'utilisateur connecté.
+      // Fallback sur prev uniquement en cas d'erreur réseau (pRows === null),
+      // jamais pour compenser un 0 row légitime (nouveau compte = 0 joueurs).
+      const players = pRows !== null
         ? pRows.map(r => dbToPlayer(r as Record<string, unknown>))
-        : (pRows && pRows.length === 0 && prev.players.length > 0)
-          ? prev.players
-          : prev.players;
+        : prev.players;
       // Pour les games : au chargement initial on ne restaure jamais une partie in_progress
       // (évite l'affichage fantôme d'une ancienne session).
       // En realtime, on accepte tout (une partie peut être en cours dans la session active).
