@@ -1,2 +1,22 @@
-node_modules
-.vercel
+# Dépendances
+node_modules/
+
+# Build
+dist/
+
+# Variables d'environnement
+.env
+.env.local
+.env.*.local
+
+# Système
+.DS_Store
+
+# Local config
+*.local
+
+# Déploiement
+.vercel/
+
+# Claude / outils locaux
+.claude/
