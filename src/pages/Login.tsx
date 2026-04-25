@@ -1,16 +1,20 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { authSignIn, authSignUp, authResetPassword, saveProfile } from '../lib/supabase'
+import { authSignIn, authSignUp, authResetPassword } from '../lib/supabase'
 
 type Tab = 'login' | 'register' | 'forgot'
 
 export default function Login() {
-  const { user } = useAuth()
+  const { user, isRecoverySession } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
+
+  // Préremplir l'email si redirigé depuis ResetPassword (state.email)
+  const prefillEmail = (location.state as { email?: string } | null)?.email ?? ''
 
   const [tab, setTab] = useState<Tab>('login')
-  const [email, setEmail] = useState('')
+  const [email, setEmail] = useState(prefillEmail)
   const [pseudo, setPseudo] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -18,8 +22,10 @@ export default function Login() {
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    if (user) navigate('/', { replace: true })
-  }, [user, navigate])
+    // Ne jamais rediriger une session recovery vers l'app —
+    // RequireAuth s'en charge et renvoie vers /reset-password.
+    if (user && !isRecoverySession) navigate('/', { replace: true })
+  }, [user, isRecoverySession, navigate])
 
   function resetForm() {
     setError('')
@@ -71,16 +77,14 @@ export default function Login() {
     }
     setLoading(true)
     try {
-      const { error, data } = await authSignUp(email, password)
+      const { error } = await authSignUp(email, password, pseudo.trim())
       if (error) {
         setError(error.message)
       } else {
-        // If session is immediate (no email confirmation), update pseudo right away
-        if (data.session && data.user) {
-          await saveProfile(data.user.id, { pseudo: pseudo.trim() })
-        } else {
-          setInfo('Compte créé ! Vérifie tes emails pour confirmer ton inscription.')
-        }
+        // Le trigger handle_new_user crée le profil avec le bon pseudo via raw_user_meta_data.
+        // Si session immédiate (pas de confirmation email) → useEffect redirige vers '/'.
+        // Sinon, on demande à l'utilisateur de confirmer son email.
+        setInfo('Compte créé ! Vérifie tes emails pour confirmer ton inscription.')
       }
     } catch {
       setError('Erreur lors de la création du compte.')

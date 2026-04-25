@@ -19,7 +19,7 @@ import Invitations from './pages/Invitations'
 import InviteDeepLink from './pages/InviteDeepLink'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth()
+  const { user, loading, isRecoverySession } = useAuth()
   const location = useLocation()
 
   if (loading) {
@@ -32,6 +32,12 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 
   if (!user) {
     return <Navigate to="/login" state={{ from: location }} replace />
+  }
+
+  // Session de recovery (reset password) : forcer vers /reset-password,
+  // jamais vers l'app connectée.
+  if (isRecoverySession) {
+    return <Navigate to="/reset-password" replace />
   }
 
   return <>{children}</>

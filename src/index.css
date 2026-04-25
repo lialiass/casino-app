@@ -43,7 +43,8 @@ body {
 .page {
   flex: 1;
   padding: 16px;
-  padding-bottom: 80px;
+  /* 80px nav + home bar iOS */
+  padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
   max-width: 480px;
   margin: 0 auto;
   width: 100%;
@@ -97,6 +98,8 @@ body {
   z-index: 100;
   max-width: 480px;
   margin: 0 auto;
+  /* iOS home bar (iPhone X+) */
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 .nav-item {
