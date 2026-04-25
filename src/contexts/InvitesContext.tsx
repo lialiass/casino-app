@@ -5,14 +5,19 @@ import {
   acceptGameInvite,
   declineGameInvite,
   subscribeToInvites,
+  fetchMyFriendships,
 } from '../lib/supabase'
 import type { GameInviteWithDetails } from '../types'
 
 interface InvitesContextType {
   invites: GameInviteWithDetails[]
+  /** Total : invitations parties + demandes d'amis reçues */
   pendingCount: number
+  /** Demandes d'amis reçues uniquement (pour le badge de l'onglet Amis) */
+  pendingFriendCount: number
   loading: boolean
   refresh: () => Promise<void>
+  refreshFriendCount: () => Promise<void>
   accept: (invite: GameInviteWithDetails, playerId: string) => Promise<void>
   decline: (inviteId: string) => Promise<void>
 }
@@ -22,8 +27,8 @@ const InvitesContext = createContext<InvitesContextType | null>(null)
 export function InvitesProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth()
   const [invites, setInvites] = useState<GameInviteWithDetails[]>([])
+  const [pendingFriendCount, setPendingFriendCount] = useState(0)
   const [loading, setLoading] = useState(false)
-  // Prevent stale closure in subscribeToInvites callback
   const userIdRef = useRef<string | null>(null)
 
   const refresh = useCallback(async () => {
@@ -40,28 +45,43 @@ export function InvitesProvider({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
+  const refreshFriendCount = useCallback(async () => {
+    const uid = userIdRef.current
+    if (!uid) return
+    try {
+      const friendships = await fetchMyFriendships(uid)
+      const count = friendships.filter(
+        f => f.status === 'pending' && f.addresseeId === uid
+      ).length
+      setPendingFriendCount(count)
+    } catch (err) {
+      console.error('InvitesContext refreshFriendCount error:', err)
+    }
+  }, [])
+
   useEffect(() => {
     userIdRef.current = user?.id ?? null
 
     if (!user) {
       setInvites([])
+      setPendingFriendCount(0)
       return
     }
 
-    // Initial load
+    // Chargement initial des deux types d'invitations
     refresh()
+    refreshFriendCount()
 
-    // Realtime subscription
+    // Realtime pour les invitations de parties
     const unsubscribe = subscribeToInvites(user.id, () => {
       refresh()
     })
 
     return unsubscribe
-  }, [user, refresh])
+  }, [user, refresh, refreshFriendCount])
 
   const accept = useCallback(async (invite: GameInviteWithDetails, playerId: string) => {
     await acceptGameInvite(invite.id, invite.gameId, playerId)
-    // Optimistically remove from pending list
     setInvites(prev => prev.filter(i => i.id !== invite.id))
   }, [])
 
@@ -74,9 +94,11 @@ export function InvitesProvider({ children }: { children: React.ReactNode }) {
     <InvitesContext.Provider
       value={{
         invites,
-        pendingCount: invites.length,
+        pendingCount: invites.length + pendingFriendCount,
+        pendingFriendCount,
         loading,
         refresh,
+        refreshFriendCount,
         accept,
         decline,
       }}

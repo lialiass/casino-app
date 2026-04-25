@@ -53,9 +53,38 @@ export default function Account({ embedded = false }: { embedded?: boolean }) {
     setPseudoValue(profile?.pseudo ?? '')
   }, [profile?.pseudo])
 
-  const finishedGames = games.filter(
-    g => g.status === 'finished' && g.players.some(p => p.playerId === user?.id || true)
-  ).length
+  // ── Calcul des statistiques personnelles ──────────────────────────────────
+  // Source : uniquement les parties du store (filtrées par RLS = mes parties visibles).
+  // On ne lit que les résultats où playerId === mon propre user.id.
+  const myStats = (() => {
+    const myId = user?.id
+    if (!myId) return null
+
+    let totalGames = 0, wins = 0, seconds = 0, losses = 0
+    let netResult = 0, totalEngaged = 0
+    let bestWin = 0, worstLoss = 0, hasResult = false
+
+    for (const game of games) {
+      if (game.status !== 'finished' || !game.results) continue
+      const result = game.results.find(r => r.playerId === myId)
+      if (!result) continue
+      totalGames++
+      netResult    += result.netResult
+      totalEngaged += result.totalEngaged
+      if (result.rank === 'winner' || result.rank === 'shared') wins++
+      else if (result.rank === 'second') seconds++
+      else losses++
+      if (!hasResult || result.netResult > bestWin)   bestWin   = result.netResult
+      if (!hasResult || result.netResult < worstLoss) worstLoss = result.netResult
+      hasResult = true
+    }
+
+    const winRate    = totalGames > 0 ? Math.round(wins    / totalGames * 100) : 0
+    const secondRate = totalGames > 0 ? Math.round(seconds / totalGames * 100) : 0
+    const avgGain    = totalGames > 0 ? netResult / totalGames : 0
+
+    return { totalGames, wins, seconds, losses, netResult, totalEngaged, bestWin, worstLoss, winRate, secondRate, avgGain }
+  })()
 
   async function handleSavePseudo() {
     if (!pseudoValue.trim()) {
@@ -188,17 +217,85 @@ export default function Account({ embedded = false }: { embedded?: boolean }) {
           </div>
         </div>
 
-        {/* Stats */}
+        {/* Mes statistiques */}
         <div className="card" style={{ marginBottom: 16 }}>
-          <p style={{ fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 12 }}>
-            Statistiques
+          <p style={{ fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 14 }}>
+            Mes statistiques
           </p>
-          <div style={{ display: 'flex', gap: 12 }}>
-            <div style={{ flex: 1, textAlign: 'center', padding: '10px 0', background: 'var(--bg)', borderRadius: 8 }}>
-              <p style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--gold)', lineHeight: 1 }}>{finishedGames}</p>
-              <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4 }}>Parties jouées</p>
-            </div>
-          </div>
+
+          {!myStats || myStats.totalGames === 0 ? (
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+              Aucune partie terminée pour l'instant.
+            </p>
+          ) : (
+            <>
+              {/* Ligne 1 : résultat net en vedette */}
+              <div style={{
+                textAlign: 'center', padding: '14px 0 16px',
+                borderBottom: '1px solid var(--border)', marginBottom: 14,
+              }}>
+                <div style={{
+                  fontSize: '2rem', fontWeight: 800, lineHeight: 1,
+                  color: myStats.netResult > 0 ? 'var(--green)' : myStats.netResult < 0 ? 'var(--red)' : 'var(--gold)',
+                }}>
+                  {myStats.netResult > 0 ? '+' : ''}{myStats.netResult.toFixed(2)}€
+                </div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  Gains nets cumulés
+                </div>
+              </div>
+
+              {/* Grille 3×2 */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 10 }}>
+                {[
+                  { label: 'Parties', value: myStats.totalGames, color: 'var(--gold)' },
+                  { label: 'Victoires', value: myStats.wins, color: 'var(--green)' },
+                  { label: '2e places', value: myStats.seconds, color: 'var(--text)' },
+                  { label: 'Défaites', value: myStats.losses, color: myStats.losses > 5 ? 'var(--red)' : 'var(--text)' },
+                  { label: 'Win rate', value: `${myStats.winRate}%`, color: myStats.winRate >= 40 ? 'var(--green)' : 'var(--text)' },
+                  { label: 'Top 2 rate', value: `${myStats.secondRate + myStats.winRate}%`, color: 'var(--text)' },
+                ].map(({ label, value, color }) => (
+                  <div key={label} style={{ background: 'var(--bg)', borderRadius: 8, padding: '10px 8px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '1.2rem', fontWeight: 800, color, lineHeight: 1 }}>{value}</div>
+                    <div style={{ fontSize: '0.62rem', color: 'var(--text-muted)', marginTop: 4, textTransform: 'uppercase', letterSpacing: 0.4 }}>{label}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Grille 2×2 — détails financiers */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
+                {[
+                  {
+                    label: 'Meilleur résultat',
+                    value: `${myStats.bestWin > 0 ? '+' : ''}${myStats.bestWin.toFixed(2)}€`,
+                    color: myStats.bestWin > 0 ? 'var(--green)' : 'var(--text-muted)',
+                  },
+                  {
+                    label: 'Pire résultat',
+                    value: `${myStats.worstLoss.toFixed(2)}€`,
+                    color: myStats.worstLoss < 0 ? 'var(--red)' : 'var(--text-muted)',
+                  },
+                  {
+                    label: 'Gain moyen / partie',
+                    value: `${myStats.avgGain > 0 ? '+' : ''}${myStats.avgGain.toFixed(2)}€`,
+                    color: myStats.avgGain > 0 ? 'var(--green)' : myStats.avgGain < 0 ? 'var(--red)' : 'var(--text-muted)',
+                  },
+                  {
+                    label: 'Total engagé',
+                    value: `${myStats.totalEngaged.toFixed(2)}€`,
+                    color: 'var(--text)',
+                  },
+                ].map(({ label, value, color }) => (
+                  <div key={label} style={{ background: 'var(--bg)', borderRadius: 8, padding: '10px 12px' }}>
+                    <div style={{ fontSize: '0.62rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 }}>
+                      {label}
+                    </div>
+                    <div style={{ fontSize: '1rem', fontWeight: 800, color }}>{value}</div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
 
         {/* Share */}

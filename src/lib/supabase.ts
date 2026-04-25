@@ -85,6 +85,51 @@ async function compressImage(file: File, maxSize = 400): Promise<Blob> {
 
 // --- Friends ---
 
+// --- Friend global stats (via SECURITY DEFINER RPC) ---
+
+export interface FriendGlobalStats {
+  friendId: string
+  totalGames: number
+  netResult: number
+  wins: number
+  seconds: number
+  losses: number
+  bestWin: number
+  worstLoss: number
+  winRate: number
+}
+
+export async function fetchAllFriendsStats(): Promise<FriendGlobalStats[]> {
+  if (!supabase) return []
+  const { data, error } = await supabase.rpc('get_all_friends_stats')
+  if (error) {
+    console.error('fetchAllFriendsStats error:', error)
+    return []
+  }
+  if (!data) return []
+  return (data as {
+    friend_id: string
+    total_games: number | string
+    net_result: number | string
+    wins: number | string
+    seconds: number | string
+    losses: number | string
+    best_win: number | string
+    worst_loss: number | string
+    win_rate: number | string
+  }[]).map(r => ({
+    friendId: r.friend_id,
+    totalGames: Number(r.total_games),
+    netResult: Number(r.net_result),
+    wins: Number(r.wins),
+    seconds: Number(r.seconds),
+    losses: Number(r.losses),
+    bestWin: Number(r.best_win),
+    worstLoss: Number(r.worst_loss),
+    winRate: Number(r.win_rate),
+  }))
+}
+
 export async function searchProfiles(query: string, excludeId: string): Promise<ProfileSearchResult[]> {
   if (!supabase) return []
   // Utilise une fonction SECURITY DEFINER côté Supabase pour contourner la RLS
