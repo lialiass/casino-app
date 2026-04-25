@@ -11,11 +11,13 @@ export default function Home() {
   const navigate = useNavigate()
 
   const [friendCount, setFriendCount] = useState(0)
+  const [loadingFriends, setLoadingFriends] = useState(true)
 
   useEffect(() => {
-    if (!user) return
+    if (!user) { setLoadingFriends(false); return }
     fetchMyFriendships(user.id).then(friendships => {
       setFriendCount(friendships.filter(f => f.status === 'accepted').length)
+      setLoadingFriends(false)
     })
   }, [user])
 
@@ -34,7 +36,7 @@ export default function Home() {
         <div className="stats-grid">
           <div className="card" style={{ padding: 12 }}>
             <div className="quick-stat">
-              <div className="value">{friendCount}</div>
+              <div className="value">{loadingFriends ? '—' : friendCount}</div>
               <div className="label">Amis</div>
             </div>
           </div>
@@ -76,7 +78,7 @@ export default function Home() {
           </button>
         </div>
 
-        {friendCount === 0 && (
+        {!loadingFriends && friendCount === 0 && (
           <div className="alert alert-info" style={{ marginTop: 16 }}>
             Ajoutez des amis pour pouvoir démarrer une partie.
           </div>

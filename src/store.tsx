@@ -169,10 +169,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [data, setData] = useState<AppData>({ players: [], games: [] });
   const [isLoading, setIsLoading] = useState(true);
   const skipNextSaveRef = useRef(false);
-  // IDs des parties dont l'ecriture Supabase est en cours.
-  // Permet d'ignorer les events realtime declenchés par nos propres writes
-  // pour eviter qu'un fetch intermediaire ecrase le state local avant confirmation.
+  // IDs des parties dont l'écriture Supabase est en cours.
   const pendingGameWritesRef = useRef<Set<string>>(new Set());
+  // Cache des joueurs ajoutés via ensureUserPlayer dans la session courante.
+  // Conservés jusqu'à déconnexion, indépendamment du résultat de l'upsert Supabase.
+  // Garantit que les fiches amis restent accessibles pendant toute la partie,
+  // même si la RLS bloque temporairement l'écriture ou si un realtime arrive trop tôt.
+  const sessionPlayersRef = useRef<Map<string, Player>>(new Map());
 
   // Fetch all data from Supabase
   // isInitialLoad=true : filtre les parties in_progress (on ne restaure pas une vieille session)
@@ -205,16 +208,63 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Si l'utilisateur a changé pendant l'appel async, ignorer la réponse
     if (userIdRef.current !== currentUserId) return;
 
+    // --- Résolution des profils manquants ---
+    // Certains playerIds dans les parties proviennent d'amis dont la fiche player
+    // n'est pas dans notre table players (RLS). On les résout depuis profiles.
+    if (gRows !== null) {
+      const freshPlayerIds = new Set((pRows ?? []).map(r => (r as Record<string, unknown>).id as string));
+      const unresolvedIds: string[] = [];
+      for (const row of gRows) {
+        const gamePlayers = ((row as Record<string, unknown>).players as GamePlayer[]) ?? [];
+        for (const gp of gamePlayers) {
+          if (
+            !freshPlayerIds.has(gp.playerId) &&
+            !sessionPlayersRef.current.has(gp.playerId)
+          ) {
+            unresolvedIds.push(gp.playerId);
+          }
+        }
+      }
+      const uniqueUnresolved = [...new Set(unresolvedIds)];
+      if (uniqueUnresolved.length > 0) {
+        const { data: profileRows } = await supabase
+          .from('profiles')
+          .select('id, pseudo, photo_url')
+          .in('id', uniqueUnresolved);
+        if (profileRows) {
+          for (const p of profileRows) {
+            const profilePlayer: Player = {
+              id: p.id as string,
+              name: p.pseudo as string,
+              createdAt: new Date().toISOString(),
+              photoUrl: (p.photo_url as string | null) ?? undefined,
+              userId: p.id as string,
+            };
+            // Mettre en cache dans sessionPlayersRef — sera inclus dans setData via sessionOnlyPlayers
+            sessionPlayersRef.current.set(profilePlayer.id, profilePlayer);
+          }
+        }
+        // Re-vérifier la race condition après l'appel async supplémentaire
+        if (userIdRef.current !== currentUserId) return;
+      }
+    }
+
     skipNextSaveRef.current = true;
     setData(prev => {
-      // Joueurs : Supabase est la source de vérité.
-      // La RLS garantit que seuls les joueurs autorisés sont retournés :
-      //   - joueurs dont user_id = auth.uid() (propre compte)
-      //   - joueurs dont created_by = auth.uid() (amis ajoutés via ensureUserPlayer)
-      // En cas d'erreur Supabase (pRows === null) : tableau vide, jamais de fallback.
-      const players = pRows !== null
+      // Joueurs : Supabase est la source de vérité (filtrée par RLS).
+      // On complète avec sessionPlayersRef — joueurs ajoutés via ensureUserPlayer
+      // dans la session courante. Cela garantit que les fiches amis restent
+      // disponibles pour getPlayerById() pendant toute la partie,
+      // même si l'upsert Supabase échoue ou si le realtime arrive trop tôt.
+      const freshPlayers = pRows !== null
         ? pRows.map(r => dbToPlayer(r as Record<string, unknown>))
         : [];
+      const sessionOnlyPlayers = Array.from(sessionPlayersRef.current.values()).filter(
+        sp => !freshPlayers.find(fp => fp.id === sp.id)
+      );
+      const players = pRows !== null
+        ? [...freshPlayers, ...sessionOnlyPlayers]
+        : [...sessionOnlyPlayers];
 
       // Pour les games : RLS fait autorité côté serveur.
       // En cas d'erreur Supabase (gRows === null) : tableau vide, jamais de fallback.
@@ -258,7 +308,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Load data when user logs in / out
   useEffect(() => {
     if (!userId) {
-      // Déconnexion : vider le state immédiatement
+      // Déconnexion : vider le state ET le cache de session
+      sessionPlayersRef.current.clear();
       setData({ players: [], games: [] });
       setIsLoading(false);
       return;
@@ -417,6 +468,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
       return prev;
     });
+    // Stocker immédiatement dans le cache de session — indépendamment de Supabase.
+    // Garantit que getPlayerById() fonctionne toute la partie même si l'upsert échoue.
+    sessionPlayersRef.current.set(profile.id, player);
+
     if (supabase) {
       const { error } = await supabase.from('players').upsert(
         { ...playerToDb(player), created_by: userIdRef.current },
@@ -617,19 +672,38 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
 
   const getPlayerById = useCallback(
-    (id: string): Player | undefined => data.players.find(p => p.id === id),
+    (id: string): Player | undefined =>
+      data.players.find(p => p.id === id) ?? sessionPlayersRef.current.get(id),
     [data.players]
   );
 
   const getPlayerStats = useCallback((): PlayerStats[] => {
-    return data.players.map(player => {
-      const finishedGames = data.games.filter(
-        g => g.status === 'finished' && g.players.some(p => p.playerId === player.id)
+    const finishedGames = data.games.filter(g => g.status === 'finished');
+
+    // Source de vérité : les playerIds présents dans les parties terminées.
+    // On ne part PAS de data.players (qui peut manquer des fiches amis)
+    // mais des game.players / game.results — exhaustifs par construction.
+    const playerIds = new Set<string>();
+    for (const game of finishedGames) {
+      game.players.forEach(p => playerIds.add(p.playerId));
+    }
+    // Ajouter aussi les joueurs de data.players (pour la section "sans parties")
+    data.players.forEach(p => playerIds.add(p.id));
+
+    return Array.from(playerIds).map(playerId => {
+      // Résolution du joueur : data.players → cache session → fallback minimal
+      const player: Player =
+        data.players.find(p => p.id === playerId) ??
+        sessionPlayersRef.current.get(playerId) ??
+        { id: playerId, name: 'Joueur inconnu', createdAt: new Date().toISOString() };
+
+      const playerGames = finishedGames.filter(
+        g => g.players.some(p => p.playerId === playerId)
       );
       let netResult = 0, wins = 0, seconds = 0, totalRebuys = 0, totalEngaged = 0;
-      for (const game of finishedGames) {
-        const result = game.results?.find(r => r.playerId === player.id);
-        const gp = game.players.find(p => p.playerId === player.id);
+      for (const game of playerGames) {
+        const result = game.results?.find(r => r.playerId === playerId);
+        const gp = game.players.find(p => p.playerId === playerId);
         if (result) {
           netResult += result.netResult;
           totalEngaged += result.totalEngaged;
@@ -638,7 +712,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
         if (gp) totalRebuys += gp.rebuys;
       }
-      return { player, totalGames: finishedGames.length, wins, seconds, netResult, totalRebuys, totalEngaged };
+      return { player, totalGames: playerGames.length, wins, seconds, netResult, totalRebuys, totalEngaged };
     });
   }, [data]);
 
