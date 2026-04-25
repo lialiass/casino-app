@@ -3,11 +3,16 @@ import type { User, Session } from '@supabase/supabase-js'
 import { supabase, fetchProfile, saveProfile } from '../lib/supabase'
 import type { Profile } from '../types'
 
+const RECOVERY_KEY = 'poker_password_recovery'
+
 interface AuthContextType {
   user: User | null
   session: Session | null
   loading: boolean
   profile: Profile | null
+  /** true uniquement quand la session courante est une session de recovery (reset password).
+   *  Bloque toute navigation automatique vers l'app. */
+  isRecoverySession: boolean
   signOut: () => Promise<void>
   updateProfile: (updates: { pseudo?: string; photoUrl?: string }) => Promise<void>
 }
@@ -15,10 +20,24 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | null>(null)
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null)
-  const [session, setSession] = useState<Session | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [profile, setProfile] = useState<Profile | null>(null)
+  const [user, setUser]                       = useState<User | null>(null)
+  const [session, setSession]                 = useState<Session | null>(null)
+  const [loading, setLoading]                 = useState(true)
+  const [profile, setProfile]                 = useState<Profile | null>(null)
+
+  // Initialiser depuis sessionStorage pour survivre aux rechargements de page
+  const [isRecoverySession, setIsRecovery]    = useState(
+    () => sessionStorage.getItem(RECOVERY_KEY) === 'true'
+  )
+
+  function setRecovery(value: boolean) {
+    setIsRecovery(value)
+    if (value) {
+      sessionStorage.setItem(RECOVERY_KEY, 'true')
+    } else {
+      sessionStorage.removeItem(RECOVERY_KEY)
+    }
+  }
 
   useEffect(() => {
     if (!supabase) {
@@ -26,23 +45,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return
     }
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session)
-      setUser(session?.user ?? null)
-      setLoading(false)
-    })
+    // onAuthStateChange est la source de vérité unique.
+    // Il se déclenche immédiatement avec l'état courant (INITIAL_SESSION),
+    // puis pour chaque changement (PASSWORD_RECOVERY, SIGNED_IN, etc.).
+    // On NE fait PAS getSession() séparément pour éviter un double-setState.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      // --- LOGS TEMPORAIRES (debug recovery flow) ---
+      console.log('[Auth event]', event, session?.user?.email ?? 'no user')
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        // Token de réinitialisation valide reçu depuis l'email Supabase.
+        // Marquer en mémoire ET en sessionStorage (survit à un rechargement).
+        setRecovery(true)
+      } else if (event === 'SIGNED_OUT') {
+        setRecovery(false)
+      }
+      // SIGNED_IN / TOKEN_REFRESHED / USER_UPDATED :
+      // On NE remet PAS isRecovery à false — c'est ResetPassword qui appelle signOut.
+
       setSession(session)
       setUser(session?.user ?? null)
+      // Premier event reçu → résolution initiale terminée
+      setLoading(false)
     })
 
     return () => subscription.unsubscribe()
   }, [])
 
-  // Load profile whenever user changes
+  // Chargement du profil dès que l'utilisateur change
   useEffect(() => {
     if (!user) {
       setProfile(null)
@@ -53,6 +83,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = async () => {
     await supabase?.auth.signOut()
+    // isRecovery sera remis à false via l'event SIGNED_OUT ci-dessus
   }
 
   const updateProfile = async (updates: { pseudo?: string; photoUrl?: string }) => {
@@ -62,7 +93,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, session, loading, profile, signOut, updateProfile }}>
+    <AuthContext.Provider value={{
+      user, session, loading, profile, isRecoverySession, signOut, updateProfile,
+    }}>
       {children}
     </AuthContext.Provider>
   )
