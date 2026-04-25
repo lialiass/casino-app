@@ -19,6 +19,18 @@ export async function authSignUp(email: string, password: string) {
   return supabase.auth.signUp({ email, password })
 }
 
+export async function authResetPassword(email: string) {
+  if (!supabase) throw new Error('Supabase non configuré')
+  return supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${window.location.origin}/#/reset-password`,
+  })
+}
+
+export async function authUpdatePassword(newPassword: string) {
+  if (!supabase) throw new Error('Supabase non configuré')
+  return supabase.auth.updateUser({ password: newPassword })
+}
+
 // --- Profiles ---
 
 export async function fetchProfile(userId: string): Promise<Profile | null> {

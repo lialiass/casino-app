@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { authSignIn, authSignUp, saveProfile } from '../lib/supabase'
+import { authSignIn, authSignUp, authResetPassword, saveProfile } from '../lib/supabase'
 
-type Tab = 'login' | 'register'
+type Tab = 'login' | 'register' | 'forgot'
 
 export default function Login() {
   const { user } = useAuth()
@@ -24,6 +24,24 @@ export default function Login() {
   function resetForm() {
     setError('')
     setInfo('')
+  }
+
+  async function handleForgot(e: React.FormEvent) {
+    e.preventDefault()
+    resetForm()
+    if (!email.trim()) {
+      setError('Entre ton adresse email.')
+      return
+    }
+    setLoading(true)
+    try {
+      await authResetPassword(email.trim())
+      setInfo('Si un compte existe avec cet email, un lien de réinitialisation a été envoyé.')
+    } catch {
+      setError('Erreur lors de l\'envoi. Vérifie ta connexion.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function handleLogin(e: React.FormEvent) {
@@ -77,24 +95,26 @@ export default function Login() {
         <div className="login-logo">🃏</div>
         <h1 className="login-title">Poker Manager</h1>
 
-        <div className="login-tabs">
-          <button
-            type="button"
-            className={tab === 'login' ? 'active' : ''}
-            onClick={() => { setTab('login'); resetForm() }}
-          >
-            Connexion
-          </button>
-          <button
-            type="button"
-            className={tab === 'register' ? 'active' : ''}
-            onClick={() => { setTab('register'); resetForm() }}
-          >
-            Inscription
-          </button>
-        </div>
+        {tab !== 'forgot' && (
+          <div className="login-tabs">
+            <button
+              type="button"
+              className={tab === 'login' ? 'active' : ''}
+              onClick={() => { setTab('login'); resetForm() }}
+            >
+              Connexion
+            </button>
+            <button
+              type="button"
+              className={tab === 'register' ? 'active' : ''}
+              onClick={() => { setTab('register'); resetForm() }}
+            >
+              Inscription
+            </button>
+          </div>
+        )}
 
-        {tab === 'login' ? (
+        {tab === 'login' && (
           <form className="login-form" onSubmit={handleLogin}>
             <input
               type="email"
@@ -116,8 +136,17 @@ export default function Login() {
             <button type="submit" className="btn btn-gold" disabled={loading}>
               {loading ? 'Connexion…' : 'Se connecter'}
             </button>
+            <button
+              type="button"
+              className="login-forgot-link"
+              onClick={() => { setTab('forgot'); resetForm() }}
+            >
+              Mot de passe oublié ?
+            </button>
           </form>
-        ) : (
+        )}
+
+        {tab === 'register' && (
           <form className="login-form" onSubmit={handleRegister}>
             <input
               type="email"
@@ -149,6 +178,38 @@ export default function Login() {
             {info && <p className="login-info">{info}</p>}
             <button type="submit" className="btn btn-gold" disabled={loading}>
               {loading ? 'Création…' : 'Créer un compte'}
+            </button>
+          </form>
+        )}
+
+        {tab === 'forgot' && (
+          <form className="login-form" onSubmit={handleForgot}>
+            <p className="login-forgot-title">Réinitialiser le mot de passe</p>
+            <p className="login-forgot-desc">
+              Entre ton adresse email. Tu recevras un lien pour créer un nouveau mot de passe.
+            </p>
+            <input
+              type="email"
+              placeholder="Email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              required
+              autoComplete="email"
+              autoFocus
+            />
+            {error && <p className="login-error">{error}</p>}
+            {info && <p className="login-info">{info}</p>}
+            {!info && (
+              <button type="submit" className="btn btn-gold" disabled={loading}>
+                {loading ? 'Envoi…' : 'Envoyer le lien'}
+              </button>
+            )}
+            <button
+              type="button"
+              className="login-forgot-link"
+              onClick={() => { setTab('login'); resetForm() }}
+            >
+              ← Retour à la connexion
             </button>
           </form>
         )}

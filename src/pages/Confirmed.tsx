@@ -1,18 +1,17 @@
-import { useEffect } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 
 export default function Confirmed() {
   const { user } = useAuth()
   const navigate = useNavigate()
 
-  // If Supabase processed the token and signed the user in, redirect home
-  useEffect(() => {
+  function handleConnect() {
     if (user) {
-      const t = setTimeout(() => navigate('/', { replace: true }), 1500)
-      return () => clearTimeout(t)
+      navigate('/', { replace: true })
+    } else {
+      navigate('/login', { replace: true })
     }
-  }, [user, navigate])
+  }
 
   return (
     <div className="login-page">
@@ -22,18 +21,17 @@ export default function Confirmed() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <h1 className="login-title">Compte confirmé !</h1>
           <p style={{ color: 'var(--text-dim)', fontSize: '0.95rem', lineHeight: 1.5 }}>
-            Ton adresse email a bien été confirmée.
-            {user
-              ? ' Redirection en cours…'
-              : ' Tu peux maintenant te connecter à Poker Manager.'}
+            Ton adresse email a bien été vérifiée.
           </p>
         </div>
 
-        {!user && (
-          <Link to="/login" className="btn btn-gold" style={{ textDecoration: 'none' }}>
-            Se connecter
-          </Link>
-        )}
+        <button
+          className="btn btn-gold"
+          onClick={handleConnect}
+          style={{ width: '100%' }}
+        >
+          Me connecter
+        </button>
       </div>
     </div>
   )

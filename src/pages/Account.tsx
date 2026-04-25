@@ -80,12 +80,25 @@ export default function Account({ embedded = false }: { embedded?: boolean }) {
     e.target.value = ''
   }
 
-  function handleCopy() {
+  async function handleShare() {
     const appUrl = window.location.origin
-    navigator.clipboard.writeText(appUrl).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    })
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: 'Poker Manager',
+          text: 'Rejoins-moi sur Poker Manager pour gérer nos parties entre amis.',
+          url: appUrl,
+        })
+      } catch {
+        // L'utilisateur a annulé ou le partage a échoué — pas d'action requise
+      }
+    } else {
+      // Fallback desktop : copie dans le presse-papiers
+      navigator.clipboard.writeText(appUrl).then(() => {
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2500)
+      })
+    }
   }
 
   return (
@@ -194,20 +207,21 @@ export default function Account({ embedded = false }: { embedded?: boolean }) {
             Inviter des amis
           </p>
           <p style={{ fontSize: '0.85rem', color: 'var(--text-dim)', marginBottom: 12, lineHeight: 1.4 }}>
-            Partage le lien de l'application à tes amis pour qu'ils rejoignent Poker Manager.
+            Partage l'application à tes amis pour qu'ils rejoignent Poker Manager.
           </p>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', background: 'var(--bg)', borderRadius: 8, padding: '10px 12px' }}>
-            <p style={{ flex: 1, fontSize: '0.8rem', color: 'var(--text-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {window.location.origin}
-            </p>
-            <button
-              className="btn btn-outline btn-sm"
-              onClick={handleCopy}
-              style={{ flexShrink: 0, padding: '6px 12px' }}
-            >
-              {copied ? '✓ Copié' : 'Copier'}
-            </button>
-          </div>
+          <button
+            className="btn btn-gold"
+            onClick={handleShare}
+            style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+          >
+            <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+              <path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"/>
+            </svg>
+            {copied ? '✓ Lien copié !' : 'Partager l\'application'}
+          </button>
+          <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textAlign: 'center', marginTop: 8 }}>
+            {window.location.origin}
+          </p>
         </div>
 
         {/* Players history link */}

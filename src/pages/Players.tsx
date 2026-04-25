@@ -186,7 +186,15 @@ export default function Players() {
         {players.length === 0 && (
           <div className="empty-state" style={{ marginTop: 8 }}>
             <div className="icon">👤</div>
-            <p>Aucun joueur pour l'instant.<br />Crée une partie avec tes amis pour commencer.</p>
+            <p style={{ fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>
+              Aucun joueur historique
+            </p>
+            <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: 20 }}>
+              Tes joueurs apparaîtront ici après ta première partie.
+            </p>
+            <a href="#/new-game" className="btn btn-gold" style={{ display: 'inline-block', textDecoration: 'none', padding: '10px 24px' }}>
+              ♠ Créer une partie
+            </a>
           </div>
         )}
 

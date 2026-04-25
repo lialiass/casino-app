@@ -3,6 +3,7 @@ import { useAuth } from './contexts/AuthContext'
 import { useInvites } from './contexts/InvitesContext'
 import Login from './pages/Login'
 import Confirmed from './pages/Confirmed'
+import ResetPassword from './pages/ResetPassword'
 import Home from './pages/Home'
 import Players from './pages/Players'
 import NewGame from './pages/NewGame'
@@ -114,6 +115,7 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/confirmed" element={<Confirmed />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
         <Route
           path="/*"
           element={
