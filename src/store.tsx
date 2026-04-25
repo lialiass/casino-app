@@ -207,15 +207,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     skipNextSaveRef.current = true;
     setData(prev => {
-      // FILTRE CLIENT STRICT — double protection indépendante de la RLS.
-      // On ne conserve QUE les joueurs dont user_id correspond à l'utilisateur courant.
-      // Les joueurs legacy (user_id IS NULL) ou appartenant à un autre compte
-      // sont filtrés ici côté client, même si la RLS les laissait passer.
+      // Joueurs : Supabase est la source de vérité.
+      // La RLS garantit que seuls les joueurs autorisés sont retournés :
+      //   - joueurs dont user_id = auth.uid() (propre compte)
+      //   - joueurs dont created_by = auth.uid() (amis ajoutés via ensureUserPlayer)
       // En cas d'erreur Supabase (pRows === null) : tableau vide, jamais de fallback.
       const players = pRows !== null
-        ? pRows
-            .map(r => dbToPlayer(r as Record<string, unknown>))
-            .filter(p => p.userId === currentUserId)
+        ? pRows.map(r => dbToPlayer(r as Record<string, unknown>))
         : [];
 
       // Pour les games : RLS fait autorité côté serveur.
