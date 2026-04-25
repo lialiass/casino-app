@@ -87,14 +87,14 @@ async function compressImage(file: File, maxSize = 400): Promise<Blob> {
 
 export async function searchProfiles(query: string, excludeId: string): Promise<ProfileSearchResult[]> {
   if (!supabase) return []
+  // Utilise une fonction SECURITY DEFINER côté Supabase pour contourner la RLS
+  // restrictive sur profiles tout en n'exposant que les champs publics (pseudo, photo).
+  // La lecture directe de la table est désormais restreinte aux amis / membres communs.
   const { data, error } = await supabase
-    .from('profiles')
-    .select('id, pseudo, photo_url')
-    .ilike('pseudo', `%${query}%`)
-    .neq('id', excludeId)
-    .limit(10)
+    .rpc('search_profiles_public', { query_text: query, exclude_id: excludeId })
   if (error || !data) return []
-  return data.map(d => ({ id: d.id, pseudo: d.pseudo, photoUrl: d.photo_url ?? undefined }))
+  return (data as { id: string; pseudo: string; photo_url: string | null }[])
+    .map(d => ({ id: d.id, pseudo: d.pseudo, photoUrl: d.photo_url ?? undefined }))
 }
 
 export async function sendFriendRequest(requesterId: string, addresseeId: string) {
