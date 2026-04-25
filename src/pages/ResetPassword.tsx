@@ -13,6 +13,29 @@ export default function ResetPassword() {
   const [submitting, setSubmitting] = useState(false)
   const [success, setSuccess]     = useState(false)
 
+  // ── Succès — vérifié EN PREMIER pour éviter le flash "lien invalide" ────────
+  // signOut() déclenche SIGNED_OUT → isRecoverySession=false AVANT la navigation.
+  // Si success=true est vérifié après isRecoverySession, on voit "lien invalide".
+  // En le vérifiant ici, le composant reste sur l'écran succès jusqu'au navigate().
+  if (success) {
+    return (
+      <div className="login-page">
+        <div className="login-card" style={{ textAlign: 'center', gap: 24 }}>
+          <div style={{ fontSize: '3.5rem', lineHeight: 1 }}>✅</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <h1 className="login-title">Mot de passe modifié !</h1>
+            <p style={{ color: 'var(--text-dim)', fontSize: '0.95rem', lineHeight: 1.5 }}>
+              Ton mot de passe a bien été mis à jour.
+            </p>
+            <p style={{ color: 'var(--text-dim)', fontSize: '0.9rem', lineHeight: 1.5 }}>
+              Redirection vers la connexion…
+            </p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   // ── Attente de la résolution auth ─────────────────────────────────────────
   if (authLoading) {
     return (
@@ -54,33 +77,6 @@ export default function ResetPassword() {
     )
   }
 
-  // ── Succès ────────────────────────────────────────────────────────────────
-  if (success) {
-    return (
-      <div className="login-page">
-        <div className="login-card" style={{ textAlign: 'center', gap: 24 }}>
-          <div style={{ fontSize: '3.5rem', lineHeight: 1 }}>✅</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <h1 className="login-title">Mot de passe modifié !</h1>
-            <p style={{ color: 'var(--text-dim)', fontSize: '0.95rem', lineHeight: 1.5 }}>
-              Ton mot de passe a bien été mis à jour.
-            </p>
-            <p style={{ color: 'var(--text-dim)', fontSize: '0.9rem', lineHeight: 1.5 }}>
-              Connecte-toi avec ton nouveau mot de passe.
-            </p>
-          </div>
-          <button
-            className="btn btn-gold"
-            onClick={() => navigate('/login', { replace: true, state: { email: user?.email } })}
-            style={{ width: '100%' }}
-          >
-            Se connecter
-          </button>
-        </div>
-      </div>
-    )
-  }
-
   // ── Formulaire ────────────────────────────────────────────────────────────
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -102,12 +98,22 @@ export default function ResetPassword() {
         setError('Erreur : ' + err.message)
         return
       }
-      // Déconnecter immédiatement après la mise à jour.
-      // Cela invalide la session recovery et force une vraie reconnexion.
-      // sessionStorage nettoyé ici en plus de l'event SIGNED_OUT dans AuthContext.
+
+      // Capturer l'email AVANT signOut (user devient null après)
+      const email = user?.email ?? ''
+
+      // Nettoyer sessionStorage immédiatement
       sessionStorage.removeItem('poker_password_recovery')
-      await signOut()
+
+      // Afficher l'écran succès — vérifié EN PREMIER dans le render,
+      // donc isRecoverySession=false (déclenché par signOut) ne causera pas de flash.
       setSuccess(true)
+
+      // signOut + navigate après 1 seconde pour que l'utilisateur voie le message
+      setTimeout(async () => {
+        await signOut()
+        navigate('/login', { replace: true, state: { email } })
+      }, 1000)
     } catch {
       setError('Une erreur est survenue. Réessaie.')
     } finally {
