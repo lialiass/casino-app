@@ -27,6 +27,12 @@
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 
+html {
+  /* Fix 3 — dark background partout, même au-delà du scroll iOS (rubber-band) */
+  background: var(--bg);
+  overscroll-behavior: none;
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -55,9 +61,9 @@ body {
 /* Layout */
 .page {
   flex: 1;
-  padding: 16px;
+  padding: 12px 16px;
   /* Dynamic Island / status bar — pages sans header sticky */
-  padding-top: calc(16px + var(--safe-top));
+  padding-top: calc(12px + var(--safe-top));
   /* 80px nav + home bar iOS */
   padding-bottom: calc(88px + var(--safe-bottom));
   max-width: 480px;
@@ -73,7 +79,8 @@ body {
   align-items: center;
   gap: 12px;
   /* padding-top absorbe la Dynamic Island / status bar */
-  padding: calc(14px + var(--safe-top)) 16px 14px;
+  /* Fix 2 — bottom réduit : header plus compact, moins de vide sous le titre */
+  padding: calc(14px + var(--safe-top)) 16px 10px;
   /* P1 — glass effect natif iOS */
   background: rgba(15, 22, 35, 0.88);
   backdrop-filter: blur(20px);
@@ -86,10 +93,14 @@ body {
 
 .header h1 {
   flex: 1;
-  font-size: 1.1rem;
-  font-weight: 700;
-  color: var(--gold);
-  letter-spacing: 0.5px;
+  font-size: 1.15rem;
+  font-weight: 800;
+  /* Fix 2 — gradient text doré premium */
+  background: linear-gradient(135deg, var(--gold), var(--gold-light));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  letter-spacing: 0.4px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -485,8 +496,9 @@ body {
   color: var(--gold);
   text-transform: uppercase;
   letter-spacing: 1px;
-  margin-bottom: 12px;
-  margin-top: 20px;
+  margin-bottom: 10px;
+  /* Fix 1 — espace vertical réduit */
+  margin-top: 10px;
 }
 
 /* Player item */
@@ -568,7 +580,8 @@ body {
 /* Home */
 .home-logo {
   text-align: center;
-  padding: 32px 0 20px;
+  /* Fix 1 — espace vertical réduit */
+  padding: 18px 0 12px;
 }
 
 .home-logo .suits {
@@ -615,8 +628,9 @@ body {
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
-  margin-bottom: 24px;
+  gap: 10px;
+  /* Fix 1 — espace vertical réduit */
+  margin-bottom: 16px;
 }
 
 .home-actions {
@@ -982,12 +996,13 @@ input[type=number]::-webkit-outer-spin-button {
 
 .page-tab {
   flex: 1;
-  padding: 12px 0;
+  /* Fix 1 — espacement réduit, plus dense */
+  padding: 9px 0;
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
   color: var(--text-muted);
-  font-size: 0.9rem;
+  font-size: 0.88rem;
   font-weight: 600;
   cursor: pointer;
   transition: color 0.15s, border-color 0.15s;
@@ -997,6 +1012,55 @@ input[type=number]::-webkit-outer-spin-button {
 .page-tab.active {
   color: var(--gold);
   border-bottom-color: var(--gold);
+}
+
+/* Fix 3 — Pas de double safe-top sous un header sticky
+   Quand un .header ou .page-tabs est déjà au-dessus, le .page en dessous
+   ne doit PAS re-ajouter var(--safe-top) : il en résulte un gouffre de ~71px.
+
+   Cas couverts :
+   - .header ~ .page           → History, Groups (page directement après header)
+   - .page-tabs ~ .page        → Rankings, Invitations, Friends (page après tabs)
+   - .page-tabs ~ div > .page  → Profile > Account embedded (page dans wrapper div)
+*/
+.header ~ .page,
+.page-tabs ~ .page,
+.page-tabs ~ div > .page {
+  padding-top: 12px;
+}
+
+/* Fix 4 — Segmented control iOS style (filtres Classement) */
+.seg-control {
+  display: flex;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 3px;
+  gap: 2px;
+  margin-bottom: 12px;
+  margin-top: 4px;
+}
+
+.seg-btn {
+  flex: 1;
+  padding: 5px 6px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+  letter-spacing: 0.1px;
+  touch-action: manipulation;
+}
+
+.seg-btn.active {
+  background: var(--bg-card);
+  color: var(--gold);
+  box-shadow: 0 1px 5px rgba(0,0,0,0.45);
 }
 
 /* Friends */
@@ -1228,4 +1292,72 @@ input[type=number]::-webkit-outer-spin-button {
 ::-webkit-scrollbar {
   width: 0;
   height: 0;
+}
+
+/* ── Section label (titre de section dans les cards) ───────────────────────*/
+.section-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 14px;
+}
+
+/* ── Modal suppression de compte ───────────────────────────────────────────*/
+.delete-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  z-index: 300;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  animation: overlay-in 0.2s ease;
+}
+
+@keyframes overlay-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.delete-modal-sheet {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-top-left-radius: 24px;
+  border-top-right-radius: 24px;
+  border-bottom: none;
+  padding: 12px 20px calc(24px + var(--safe-bottom));
+  width: 100%;
+  max-width: 480px;
+  animation: sheet-up 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+@keyframes sheet-up {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
+.delete-modal-handle {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+  margin: 0 auto 20px;
+}
+
+/* ── Spinner dans les boutons ───────────────────────────────────────────────*/
+.btn-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  display: inline-block;
+  animation: spin 0.6s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }

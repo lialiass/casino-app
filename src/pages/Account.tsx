@@ -1,8 +1,14 @@
 import { useState, useEffect, useRef } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { uploadProfilePhoto } from '../lib/supabase'
 import { useStore } from '../store'
+import {
+  isPushSupported,
+  getPermissionStatus,
+  requestAndRegister,
+  type NotifPermission,
+} from '../lib/notifications'
 
 function Avatar({ photoUrl, pseudo, size = 80 }: { photoUrl?: string; pseudo?: string; size?: number }) {
   const initials = pseudo ? pseudo.slice(0, 2).toUpperCase() : '?'
@@ -37,25 +43,80 @@ function Avatar({ photoUrl, pseudo, size = 80 }: { photoUrl?: string; pseudo?: s
   )
 }
 
+// ── Toggle switch premium iOS ─────────────────────────────────────────────────
+function Toggle({ value, onChange, disabled = false }: { value: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
+  return (
+    <button
+      role="switch"
+      aria-checked={value}
+      disabled={disabled}
+      onClick={() => onChange(!value)}
+      style={{
+        width: 44,
+        height: 26,
+        borderRadius: 13,
+        background: value ? 'var(--green)' : 'var(--border)',
+        border: 'none',
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        padding: 0,
+        position: 'relative',
+        transition: 'background 0.2s',
+        flexShrink: 0,
+        opacity: disabled ? 0.5 : 1,
+      }}
+    >
+      <span
+        style={{
+          position: 'absolute',
+          top: 2,
+          left: value ? 20 : 2,
+          width: 22,
+          height: 22,
+          borderRadius: '50%',
+          background: '#fff',
+          boxShadow: '0 1px 4px rgba(0,0,0,0.35)',
+          transition: 'left 0.2s',
+        }}
+      />
+    </button>
+  )
+}
+
 export default function Account({ embedded = false }: { embedded?: boolean }) {
-  const { user, profile, signOut, updateProfile } = useAuth()
+  const { user, profile, signOut, updateProfile, deleteAccount } = useAuth()
   const { games } = useStore()
+  const navigate = useNavigate()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [editingPseudo, setEditingPseudo] = useState(false)
-  const [pseudoValue, setPseudoValue] = useState('')
-  const [savingPseudo, setSavingPseudo] = useState(false)
+  const [pseudoValue, setPseudoValue]     = useState('')
+  const [savingPseudo, setSavingPseudo]   = useState(false)
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
-  const [copied, setCopied] = useState(false)
-  const [pseudoError, setPseudoError] = useState('')
+  const [copied, setCopied]               = useState(false)
+  const [pseudoError, setPseudoError]     = useState('')
+
+  // ── Suppression de compte ─────────────────────────────────────────────────
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [deleteConfirm, setDeleteConfirm]     = useState('')
+  const [deleting, setDeleting]               = useState(false)
+  const [deleteError, setDeleteError]         = useState('')
+
+  // ── Notifications ─────────────────────────────────────────────────────────
+  const [pushPermission, setPushPermission]   = useState<NotifPermission>('prompt')
+  const [requestingPush, setRequestingPush]   = useState(false)
+  const [savingNotif, setSavingNotif]         = useState(false)
 
   useEffect(() => {
     setPseudoValue(profile?.pseudo ?? '')
   }, [profile?.pseudo])
 
-  // ── Calcul des statistiques personnelles ──────────────────────────────────
-  // Source : uniquement les parties du store (filtrées par RLS = mes parties visibles).
-  // On ne lit que les résultats où playerId === mon propre user.id.
+  // Vérifier la permission push au montage (iOS Capacitor uniquement)
+  useEffect(() => {
+    if (!isPushSupported()) return
+    getPermissionStatus().then(setPushPermission)
+  }, [])
+
+  // ── Statistiques personnelles ─────────────────────────────────────────────
   const myStats = (() => {
     const myId = user?.id
     if (!myId) return null
@@ -86,11 +147,9 @@ export default function Account({ embedded = false }: { embedded?: boolean }) {
     return { totalGames, wins, seconds, losses, netResult, totalEngaged, bestWin, worstLoss, winRate, secondRate, avgGain }
   })()
 
+  // ── Handlers — profil ─────────────────────────────────────────────────────
   async function handleSavePseudo() {
-    if (!pseudoValue.trim()) {
-      setPseudoError('Le pseudo ne peut pas être vide.')
-      return
-    }
+    if (!pseudoValue.trim()) { setPseudoError('Le pseudo ne peut pas être vide.'); return }
     setPseudoError('')
     setSavingPseudo(true)
     await updateProfile({ pseudo: pseudoValue.trim() })
@@ -105,42 +164,61 @@ export default function Account({ embedded = false }: { embedded?: boolean }) {
     const url = await uploadProfilePhoto(user.id, file)
     if (url) await updateProfile({ photoUrl: url })
     setUploadingPhoto(false)
-    // Reset so same file can be re-selected
     e.target.value = ''
   }
 
   async function handleShare() {
     const appUrl = 'https://playpokermanager.fr'
     if (navigator.share) {
-      // Web Share API — fonctionne nativement dans Capacitor iOS / Android
-      try {
-        await navigator.share({
-          title: 'Poker Manager',
-          text: 'Rejoins-moi sur Poker Manager pour gérer nos parties entre amis.',
-          url: appUrl,
-        })
-      } catch {
-        // L'utilisateur a annulé — pas d'action requise
-      }
+      try { await navigator.share({ title: 'Poker Manager', text: 'Rejoins-moi sur Poker Manager pour gérer nos parties entre amis.', url: appUrl }) }
+      catch { /* annulé */ }
     } else {
-      // Fallback : copie dans le presse-papiers (desktop / navigateurs sans Share API)
-      try {
-        await navigator.clipboard.writeText(appUrl)
-      } catch {
-        // Fallback ultime si clipboard API indisponible (contexte non-sécurisé)
+      try { await navigator.clipboard.writeText(appUrl) }
+      catch {
         const el = document.createElement('textarea')
         el.value = appUrl
-        el.style.position = 'fixed'
-        el.style.opacity = '0'
-        document.body.appendChild(el)
-        el.select()
-        document.execCommand('copy')
-        document.body.removeChild(el)
+        el.style.cssText = 'position:fixed;opacity:0'
+        document.body.appendChild(el); el.select(); document.execCommand('copy'); document.body.removeChild(el)
       }
       setCopied(true)
       setTimeout(() => setCopied(false), 2500)
     }
   }
+
+  // ── Handler — suppression de compte ──────────────────────────────────────
+  async function handleDeleteAccount() {
+    if (deleteConfirm !== 'SUPPRIMER') return
+    setDeleting(true)
+    setDeleteError('')
+    const { error } = await deleteAccount()
+    if (error) {
+      setDeleteError(error)
+      setDeleting(false)
+      return
+    }
+    // La suppression est réussie — signOut puis redirection
+    await signOut()
+    navigate('/login', { replace: true })
+  }
+
+  // ── Handler — notifications ───────────────────────────────────────────────
+  async function handleEnablePush() {
+    setRequestingPush(true)
+    const granted = await requestAndRegister(user?.id ?? '')
+    setPushPermission(granted ? 'granted' : 'denied')
+    setRequestingPush(false)
+  }
+
+  async function handleToggleNotif(key: 'notifFriends' | 'notifGames' | 'notifResults', value: boolean) {
+    setSavingNotif(true)
+    await updateProfile({ [key]: value })
+    setSavingNotif(false)
+  }
+
+  const notifFriends  = profile?.notifFriends  ?? true
+  const notifGames    = profile?.notifGames    ?? true
+  const notifResults  = profile?.notifResults  ?? true
+  const pushEnabled   = pushPermission === 'granted'
 
   return (
     <div>
@@ -152,7 +230,7 @@ export default function Account({ embedded = false }: { embedded?: boolean }) {
 
       <div className="page">
 
-        {/* Profile card */}
+        {/* ── Carte profil ──────────────────────────────────────────────── */}
         <div className="card card-gold" style={{ marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20 }}>
             <div style={{ position: 'relative' }}>
@@ -169,29 +247,20 @@ export default function Account({ embedded = false }: { embedded?: boolean }) {
                   </svg>
                 )}
               </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                capture="user"
-                style={{ display: 'none' }}
-                onChange={handlePhotoChange}
-              />
+              <input ref={fileInputRef} type="file" accept="image/*" capture="user" style={{ display: 'none' }} onChange={handlePhotoChange} />
             </div>
 
             <div style={{ flex: 1, minWidth: 0 }}>
               <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 2 }}>Pseudo</p>
               {editingPseudo ? (
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <input
-                    className="account-input"
-                    value={pseudoValue}
-                    onChange={e => setPseudoValue(e.target.value)}
-                    maxLength={30}
-                    autoFocus
-                    onKeyDown={e => { if (e.key === 'Enter') handleSavePseudo(); if (e.key === 'Escape') setEditingPseudo(false) }}
-                  />
-                </div>
+                <input
+                  className="account-input"
+                  value={pseudoValue}
+                  onChange={e => setPseudoValue(e.target.value)}
+                  maxLength={30}
+                  autoFocus
+                  onKeyDown={e => { if (e.key === 'Enter') handleSavePseudo(); if (e.key === 'Escape') setEditingPseudo(false) }}
+                />
               ) : (
                 <p style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {profile?.pseudo ?? '—'}
@@ -220,7 +289,6 @@ export default function Account({ embedded = false }: { embedded?: boolean }) {
           )}
           {pseudoError && <p style={{ color: 'var(--red)', fontSize: '0.8rem', marginTop: 4 }}>{pseudoError}</p>}
 
-          {/* Email row */}
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: 14 }}>
             <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 2 }}>Email</p>
             <p style={{ fontSize: '0.9rem', color: 'var(--text-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -229,11 +297,9 @@ export default function Account({ embedded = false }: { embedded?: boolean }) {
           </div>
         </div>
 
-        {/* Mes statistiques */}
+        {/* ── Statistiques ─────────────────────────────────────────────── */}
         <div className="card" style={{ marginBottom: 16 }}>
-          <p style={{ fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 14 }}>
-            Mes statistiques
-          </p>
+          <p className="section-label">Mes statistiques</p>
 
           {!myStats || myStats.totalGames === 0 ? (
             <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
@@ -241,15 +307,8 @@ export default function Account({ embedded = false }: { embedded?: boolean }) {
             </p>
           ) : (
             <>
-              {/* Ligne 1 : résultat net en vedette */}
-              <div style={{
-                textAlign: 'center', padding: '14px 0 16px',
-                borderBottom: '1px solid var(--border)', marginBottom: 14,
-              }}>
-                <div style={{
-                  fontSize: '2rem', fontWeight: 800, lineHeight: 1,
-                  color: myStats.netResult > 0 ? 'var(--green)' : myStats.netResult < 0 ? 'var(--red)' : 'var(--gold)',
-                }}>
+              <div style={{ textAlign: 'center', padding: '14px 0 16px', borderBottom: '1px solid var(--border)', marginBottom: 14 }}>
+                <div style={{ fontSize: '2rem', fontWeight: 800, lineHeight: 1, color: myStats.netResult > 0 ? 'var(--green)' : myStats.netResult < 0 ? 'var(--red)' : 'var(--gold)' }}>
                   {myStats.netResult > 0 ? '+' : ''}{myStats.netResult.toFixed(2)}€
                 </div>
                 <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>
@@ -257,15 +316,14 @@ export default function Account({ embedded = false }: { embedded?: boolean }) {
                 </div>
               </div>
 
-              {/* Grille 3×2 */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 10 }}>
                 {[
-                  { label: 'Parties', value: myStats.totalGames, color: 'var(--gold)' },
-                  { label: 'Victoires', value: myStats.wins, color: 'var(--green)' },
-                  { label: '2e places', value: myStats.seconds, color: 'var(--text)' },
-                  { label: 'Défaites', value: myStats.losses, color: myStats.losses > 5 ? 'var(--red)' : 'var(--text)' },
-                  { label: 'Win rate', value: `${myStats.winRate}%`, color: myStats.winRate >= 40 ? 'var(--green)' : 'var(--text)' },
-                  { label: 'Top 2 rate', value: `${myStats.secondRate + myStats.winRate}%`, color: 'var(--text)' },
+                  { label: 'Parties',   value: myStats.totalGames, color: 'var(--gold)' },
+                  { label: 'Victoires', value: myStats.wins,       color: 'var(--green)' },
+                  { label: '2e places', value: myStats.seconds,    color: 'var(--text)' },
+                  { label: 'Défaites',  value: myStats.losses,     color: myStats.losses > 5 ? 'var(--red)' : 'var(--text)' },
+                  { label: 'Win rate',  value: `${myStats.winRate}%`, color: myStats.winRate >= 40 ? 'var(--green)' : 'var(--text)' },
+                  { label: 'Top 2',     value: `${myStats.secondRate + myStats.winRate}%`, color: 'var(--text)' },
                 ].map(({ label, value, color }) => (
                   <div key={label} style={{ background: 'var(--bg)', borderRadius: 8, padding: '10px 8px', textAlign: 'center' }}>
                     <div style={{ fontSize: '1.2rem', fontWeight: 800, color, lineHeight: 1 }}>{value}</div>
@@ -274,34 +332,15 @@ export default function Account({ embedded = false }: { embedded?: boolean }) {
                 ))}
               </div>
 
-              {/* Grille 2×2 — détails financiers */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
                 {[
-                  {
-                    label: 'Meilleur résultat',
-                    value: `${myStats.bestWin > 0 ? '+' : ''}${myStats.bestWin.toFixed(2)}€`,
-                    color: myStats.bestWin > 0 ? 'var(--green)' : 'var(--text-muted)',
-                  },
-                  {
-                    label: 'Pire résultat',
-                    value: `${myStats.worstLoss.toFixed(2)}€`,
-                    color: myStats.worstLoss < 0 ? 'var(--red)' : 'var(--text-muted)',
-                  },
-                  {
-                    label: 'Gain moyen / partie',
-                    value: `${myStats.avgGain > 0 ? '+' : ''}${myStats.avgGain.toFixed(2)}€`,
-                    color: myStats.avgGain > 0 ? 'var(--green)' : myStats.avgGain < 0 ? 'var(--red)' : 'var(--text-muted)',
-                  },
-                  {
-                    label: 'Total engagé',
-                    value: `${myStats.totalEngaged.toFixed(2)}€`,
-                    color: 'var(--text)',
-                  },
+                  { label: 'Meilleur résultat', value: `${myStats.bestWin > 0 ? '+' : ''}${myStats.bestWin.toFixed(2)}€`, color: myStats.bestWin > 0 ? 'var(--green)' : 'var(--text-muted)' },
+                  { label: 'Pire résultat',     value: `${myStats.worstLoss.toFixed(2)}€`,                                  color: myStats.worstLoss < 0 ? 'var(--red)' : 'var(--text-muted)' },
+                  { label: 'Gain moyen',        value: `${myStats.avgGain > 0 ? '+' : ''}${myStats.avgGain.toFixed(2)}€`, color: myStats.avgGain > 0 ? 'var(--green)' : myStats.avgGain < 0 ? 'var(--red)' : 'var(--text-muted)' },
+                  { label: 'Total engagé',      value: `${myStats.totalEngaged.toFixed(2)}€`,                              color: 'var(--text)' },
                 ].map(({ label, value, color }) => (
                   <div key={label} style={{ background: 'var(--bg)', borderRadius: 8, padding: '10px 12px' }}>
-                    <div style={{ fontSize: '0.62rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 }}>
-                      {label}
-                    </div>
+                    <div style={{ fontSize: '0.62rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 }}>{label}</div>
                     <div style={{ fontSize: '1rem', fontWeight: 800, color }}>{value}</div>
                   </div>
                 ))}
@@ -310,11 +349,76 @@ export default function Account({ embedded = false }: { embedded?: boolean }) {
           )}
         </div>
 
-        {/* Share */}
+        {/* ── Activité & Notifications ─────────────────────────────────── */}
         <div className="card" style={{ marginBottom: 16 }}>
-          <p style={{ fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 8 }}>
-            Inviter des amis
-          </p>
+          <p className="section-label">Activité &amp; Notifications</p>
+
+          {/* Statut permission iOS */}
+          {isPushSupported() ? (
+            <>
+              {pushPermission === 'denied' ? (
+                <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 10, padding: '10px 12px', marginBottom: 12 }}>
+                  <p style={{ fontSize: '0.82rem', color: 'var(--red)', fontWeight: 600, marginBottom: 4 }}>
+                    Notifications désactivées
+                  </p>
+                  <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                    Pour les activer : Réglages iPhone → Notifications → Poker Manager → Autoriser.
+                  </p>
+                </div>
+              ) : pushPermission === 'prompt' ? (
+                <button
+                  className="btn btn-outline btn-sm"
+                  onClick={handleEnablePush}
+                  disabled={requestingPush}
+                  style={{ marginBottom: 12, width: '100%' }}
+                >
+                  {requestingPush ? 'Demande en cours…' : '🔔 Activer les notifications'}
+                </button>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, padding: '6px 0' }}>
+                  <span style={{ fontSize: '0.82rem', color: 'var(--green)', fontWeight: 600 }}>● Notifications activées</span>
+                </div>
+              )}
+
+              {/* Toggles — visibles seulement si accès accordé */}
+              {pushEnabled && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+                  {[
+                    { key: 'notifFriends'  as const, label: 'Demandes et amis',  desc: 'Nouvelles demandes, acceptations',           value: notifFriends  },
+                    { key: 'notifGames'    as const, label: 'Parties',            desc: 'Invitations, début et fin de partie',        value: notifGames    },
+                    { key: 'notifResults'  as const, label: 'Résultats',          desc: 'Annonce du gagnant en fin de partie',        value: notifResults  },
+                  ].map(({ key, label, desc, value }, i, arr) => (
+                    <div
+                      key={key}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '12px 0',
+                        borderBottom: i < arr.length - 1 ? '1px solid var(--border)' : 'none',
+                        gap: 12,
+                      }}
+                    >
+                      <div>
+                        <p style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--text)', marginBottom: 2 }}>{label}</p>
+                        <p style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>{desc}</p>
+                      </div>
+                      <Toggle value={value} onChange={v => handleToggleNotif(key, v)} disabled={savingNotif} />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          ) : (
+            <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+              Les notifications sont disponibles uniquement sur iPhone.
+            </p>
+          )}
+        </div>
+
+        {/* ── Partager ─────────────────────────────────────────────────── */}
+        <div className="card" style={{ marginBottom: 16 }}>
+          <p className="section-label">Inviter des amis</p>
           <p style={{ fontSize: '0.85rem', color: 'var(--text-dim)', marginBottom: 12, lineHeight: 1.4 }}>
             Partage l'application à tes amis pour qu'ils rejoignent Poker Manager.
           </p>
@@ -333,7 +437,7 @@ export default function Account({ embedded = false }: { embedded?: boolean }) {
           </p>
         </div>
 
-        {/* Players history link */}
+        {/* ── Lien joueurs historiques ──────────────────────────────────── */}
         {embedded && (
           <Link
             to="/players"
@@ -346,12 +450,113 @@ export default function Account({ embedded = false }: { embedded?: boolean }) {
           </Link>
         )}
 
-        {/* Sign out */}
+        {/* ── Déconnexion ───────────────────────────────────────────────── */}
         <button className="btn btn-ghost" onClick={signOut} style={{ marginTop: 8 }}>
           Déconnexion
         </button>
 
+        {/* ── Supprimer le compte ───────────────────────────────────────── */}
+        <button
+          onClick={() => { setShowDeleteModal(true); setDeleteConfirm(''); setDeleteError('') }}
+          style={{
+            background: 'none',
+            border: 'none',
+            color: 'var(--red)',
+            fontSize: '0.82rem',
+            fontWeight: 600,
+            cursor: 'pointer',
+            padding: '10px 0',
+            marginTop: 4,
+            width: '100%',
+            textAlign: 'center',
+            opacity: 0.75,
+          }}
+        >
+          Supprimer mon compte
+        </button>
+
       </div>
+
+      {/* ── Modal suppression de compte ──────────────────────────────────── */}
+      {showDeleteModal && (
+        <div
+          className="delete-modal-overlay"
+          onClick={(e) => { if (e.target === e.currentTarget && !deleting) setShowDeleteModal(false) }}
+        >
+          <div className="delete-modal-sheet">
+            {/* Handle iOS */}
+            <div className="delete-modal-handle" />
+
+            {/* Icône danger */}
+            <div style={{ textAlign: 'center', marginBottom: 16 }}>
+              <div style={{
+                width: 56, height: 56, borderRadius: 16,
+                background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.25)',
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: '1.6rem',
+              }}>
+                🗑️
+              </div>
+            </div>
+
+            <h2 style={{ textAlign: 'center', fontSize: '1.15rem', fontWeight: 800, color: 'var(--text)', marginBottom: 10 }}>
+              Supprimer le compte ?
+            </h2>
+            <p style={{ textAlign: 'center', fontSize: '0.85rem', color: 'var(--text-dim)', lineHeight: 1.5, marginBottom: 20 }}>
+              Cette action est <strong style={{ color: 'var(--red)' }}>définitive</strong>.<br />
+              Vos données personnelles seront supprimées.
+            </p>
+
+            {/* Champ de confirmation */}
+            <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 6, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              Tapez SUPPRIMER pour confirmer
+            </p>
+            <input
+              className="input"
+              value={deleteConfirm}
+              onChange={e => setDeleteConfirm(e.target.value)}
+              placeholder="SUPPRIMER"
+              autoCapitalize="characters"
+              autoCorrect="off"
+              spellCheck={false}
+              disabled={deleting}
+              style={{ marginBottom: 8, borderColor: deleteConfirm === 'SUPPRIMER' ? 'var(--red)' : undefined }}
+            />
+
+            {deleteError && (
+              <p style={{ color: 'var(--red)', fontSize: '0.82rem', marginBottom: 8, textAlign: 'center' }}>
+                {deleteError}
+              </p>
+            )}
+
+            {/* Boutons */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 8 }}>
+              <button
+                className="btn btn-red"
+                onClick={handleDeleteAccount}
+                disabled={deleteConfirm !== 'SUPPRIMER' || deleting}
+                style={{ opacity: deleteConfirm !== 'SUPPRIMER' ? 0.4 : 1 }}
+              >
+                {deleting ? (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span className="btn-spinner" />
+                    Suppression en cours…
+                  </span>
+                ) : (
+                  'Supprimer définitivement'
+                )}
+              </button>
+              <button
+                className="btn btn-ghost"
+                onClick={() => setShowDeleteModal(false)}
+                disabled={deleting}
+              >
+                Annuler
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react'
 import type { User, Session } from '@supabase/supabase-js'
-import { supabase, fetchProfile, saveProfile } from '../lib/supabase'
+import { supabase, fetchProfile, saveProfile, deleteAccount as deleteAccountApi } from '../lib/supabase'
+import { initPushListeners, removePushListeners } from '../lib/notifications'
 import type { Profile } from '../types'
 
 const RECOVERY_KEY = 'poker_password_recovery'
@@ -14,7 +15,14 @@ interface AuthContextType {
    *  Bloque toute navigation automatique vers l'app. */
   isRecoverySession: boolean
   signOut: () => Promise<void>
-  updateProfile: (updates: { pseudo?: string; photoUrl?: string }) => Promise<void>
+  updateProfile: (updates: {
+    pseudo?: string
+    photoUrl?: string
+    notifFriends?: boolean
+    notifGames?: boolean
+    notifResults?: boolean
+  }) => Promise<void>
+  deleteAccount: () => Promise<{ error: string | null }>
 }
 
 const AuthContext = createContext<AuthContextType | null>(null)
@@ -96,13 +104,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => subscription.unsubscribe()
   }, [])
 
-  // Chargement du profil dès que l'utilisateur change
+  // Chargement du profil + init push listeners dès que l'utilisateur change
   useEffect(() => {
     if (!user) {
       setProfile(null)
+      removePushListeners()
       return
     }
     fetchProfile(user.id).then(p => { if (p) setProfile(p) })
+    // Enregistrer les listeners push en arrière-plan (non bloquant)
+    initPushListeners(user.id)
   }, [user])
 
   const signOut = async () => {
@@ -110,15 +121,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // isRecovery sera remis à false via l'event SIGNED_OUT ci-dessus
   }
 
-  const updateProfile = async (updates: { pseudo?: string; photoUrl?: string }) => {
+  const updateProfile = async (updates: {
+    pseudo?: string
+    photoUrl?: string
+    notifFriends?: boolean
+    notifGames?: boolean
+    notifResults?: boolean
+  }) => {
     if (!user) return
     await saveProfile(user.id, updates)
     setProfile(prev => (prev ? { ...prev, ...updates } : prev))
   }
 
+  const deleteAccount = async (): Promise<{ error: string | null }> => {
+    return deleteAccountApi()
+  }
+
   return (
     <AuthContext.Provider value={{
-      user, session, loading, profile, isRecoverySession, signOut, updateProfile,
+      user, session, loading, profile, isRecoverySession, signOut, updateProfile, deleteAccount,
     }}>
       {children}
     </AuthContext.Provider>

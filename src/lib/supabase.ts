@@ -59,15 +59,56 @@ export async function fetchProfile(userId: string): Promise<Profile | null> {
     email: data.email,
     createdAt: data.created_at,
     photoUrl: data.photo_url ?? undefined,
+    notifFriends: data.notif_friends ?? true,
+    notifGames:   data.notif_games   ?? true,
+    notifResults: data.notif_results ?? true,
   }
 }
 
-export async function saveProfile(userId: string, updates: { pseudo?: string; photoUrl?: string }) {
+export async function saveProfile(userId: string, updates: {
+  pseudo?: string
+  photoUrl?: string
+  notifFriends?: boolean
+  notifGames?: boolean
+  notifResults?: boolean
+}) {
   if (!supabase) return
   const row: Record<string, unknown> = {}
-  if (updates.pseudo !== undefined) row.pseudo = updates.pseudo
-  if (updates.photoUrl !== undefined) row.photo_url = updates.photoUrl
+  if (updates.pseudo        !== undefined) row.pseudo         = updates.pseudo
+  if (updates.photoUrl      !== undefined) row.photo_url      = updates.photoUrl
+  if (updates.notifFriends  !== undefined) row.notif_friends  = updates.notifFriends
+  if (updates.notifGames    !== undefined) row.notif_games    = updates.notifGames
+  if (updates.notifResults  !== undefined) row.notif_results  = updates.notifResults
   return supabase.from('profiles').update(row).eq('id', userId)
+}
+
+// --- Suppression de compte (appelle l'Edge Function delete-account) ---
+
+export async function deleteAccount(): Promise<{ error: string | null }> {
+  if (!supabase) return { error: 'Supabase non configuré' }
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) return { error: 'Non authentifié' }
+
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string
+  try {
+    const resp = await fetch(`${supabaseUrl}/functions/v1/delete-account`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+        'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY as string,
+      },
+      body: JSON.stringify({ confirmation: 'SUPPRIMER' }),
+    })
+    if (!resp.ok) {
+      const data = await resp.json().catch(() => ({})) as { error?: string }
+      return { error: data.error ?? `Erreur serveur (${resp.status})` }
+    }
+    return { error: null }
+  } catch (e) {
+    console.error('deleteAccount fetch error:', e)
+    return { error: 'Impossible de joindre le serveur. Vérifiez votre connexion.' }
+  }
 }
 
 // --- Profile photo ---
