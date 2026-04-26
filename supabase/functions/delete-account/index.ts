@@ -10,14 +10,15 @@
 //   1. Vérification JWT
 //   2. Vérification de la confirmation "SUPPRIMER"
 //   3. Suppression des fichiers storage (photo profil + groupe)
-//   4. Anonymisation des références dans games (winner_id / second_id)
-//   5. Suppression des invites de partie
-//   6. Transfert ou suppression des groupes dont l'utilisateur est owner
+//   4. Anonymisation de games.winner_id / second_id / created_by
+//   5. Suppression des invitations de partie
+//   6. Transfert ou suppression des groupes owned
 //   7. Suppression des memberships de groupes
 //   8. Suppression des amitiés
-//   9. Suppression des push tokens
-//  10. Suppression du profil
-//  11. Suppression de l'auth user (admin)
+//   9. Suppression des push tokens (optionnel)
+//  10. Anonymisation de players.user_id / created_by (FK vers auth.users)
+//  11. Suppression du profil
+//  12. Suppression de l'auth user (admin)
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
@@ -58,6 +59,7 @@ Deno.serve(async (req) => {
   if (body.confirmation !== 'SUPPRIMER') return json({ error: 'Confirmation invalide' }, 400)
 
   const userId = user.id
+  console.log(`[delete-account] START userId=${userId}`)
 
   // ── Client admin (service role) ───────────────────────────────────────────
   const admin = createClient(supabaseUrl, serviceKey, {
@@ -65,8 +67,8 @@ Deno.serve(async (req) => {
   })
 
   // ── 3. Suppression des fichiers storage ───────────────────────────────────
+  console.log('[delete-account] step 3: storage cleanup')
   try {
-    // Photo de profil
     const { data: profileFiles } = await admin.storage
       .from('profile-photos')
       .list(userId)
@@ -75,12 +77,10 @@ Deno.serve(async (req) => {
         .from('profile-photos')
         .remove(profileFiles.map(f => `${userId}/${f.name}`))
     }
-    // Photos de groupes
     const { data: groupFiles } = await admin.storage
       .from('profile-photos')
       .list(`${userId}/groups`)
     if (groupFiles && groupFiles.length > 0) {
-      // Supprimer récursivement les sous-dossiers de groupes
       for (const dir of groupFiles) {
         const { data: inner } = await admin.storage
           .from('profile-photos')
@@ -92,80 +92,143 @@ Deno.serve(async (req) => {
         }
       }
     }
+    console.log('[delete-account] step 3: storage OK')
   } catch (e) {
-    console.error('[delete-account] storage cleanup error:', e)
-    // Non fatal — continuer
+    console.error('[delete-account] step 3: storage error (non-fatal):', e)
   }
 
   // ── 4. Anonymiser les références dans games ───────────────────────────────
-  // winner_id et second_id sont TEXT (pas de FK), on les met à NULL
-  await admin.from('games').update({ winner_id: null }).eq('winner_id', userId)
-  await admin.from('games').update({ second_id: null }).eq('second_id', userId)
+  // winner_id, second_id : TEXT sans FK — mise à null pour l'historique
+  // created_by : potentielle FK vers auth.users — doit être nullé avant deleteUser
+  console.log('[delete-account] step 4: anonymize games')
+  {
+    const { error: e1 } = await admin.from('games').update({ winner_id: null }).eq('winner_id', userId)
+    if (e1) console.error('[delete-account] step 4: games.winner_id error:', e1)
+
+    const { error: e2 } = await admin.from('games').update({ second_id: null }).eq('second_id', userId)
+    if (e2) console.error('[delete-account] step 4: games.second_id error:', e2)
+
+    const { error: e3 } = await admin.from('games').update({ created_by: null }).eq('created_by', userId)
+    if (e3) console.error('[delete-account] step 4: games.created_by error:', e3)
+    else    console.log('[delete-account] step 4: games OK')
+  }
 
   // ── 5. Supprimer les invitations de partie ────────────────────────────────
-  await admin.from('game_invites')
-    .delete()
-    .or(`sender_id.eq.${userId},receiver_id.eq.${userId}`)
+  console.log('[delete-account] step 5: game_invites')
+  {
+    const { error } = await admin.from('game_invites')
+      .delete()
+      .or(`sender_id.eq.${userId},receiver_id.eq.${userId}`)
+    if (error) console.error('[delete-account] step 5: game_invites error:', error)
+    else       console.log('[delete-account] step 5: game_invites OK')
+  }
 
   // ── 6. Transférer ou supprimer les groupes owned ──────────────────────────
-  const { data: ownedGroups } = await admin
-    .from('groups')
-    .select('id')
-    .eq('owner_id', userId)
+  console.log('[delete-account] step 6: groups transfer/delete')
+  {
+    const { data: ownedGroups, error: fetchErr } = await admin
+      .from('groups')
+      .select('id')
+      .eq('owner_id', userId)
+    if (fetchErr) console.error('[delete-account] step 6: fetch groups error:', fetchErr)
 
-  for (const g of ownedGroups ?? []) {
-    // Chercher un autre membre pour le transfert
-    const { data: otherMembers } = await admin
-      .from('group_members')
-      .select('user_id')
-      .eq('group_id', g.id)
-      .neq('user_id', userId)
-      .limit(1)
+    for (const g of ownedGroups ?? []) {
+      const { data: otherMembers } = await admin
+        .from('group_members')
+        .select('user_id')
+        .eq('group_id', g.id)
+        .neq('user_id', userId)
+        .limit(1)
 
-    if (otherMembers && otherMembers.length > 0) {
-      // Transférer l'ownership
-      await admin
-        .from('groups')
-        .update({ owner_id: otherMembers[0].user_id })
-        .eq('id', g.id)
-    } else {
-      // Aucun autre membre — supprimer le groupe et ses jeux associés
-      await admin.from('games').delete().eq('group_id', g.id)
-      await admin.from('groups').delete().eq('id', g.id)
+      if (otherMembers && otherMembers.length > 0) {
+        await admin
+          .from('groups')
+          .update({ owner_id: otherMembers[0].user_id })
+          .eq('id', g.id)
+        console.log(`[delete-account] step 6: group ${g.id} transferred`)
+      } else {
+        await admin.from('games').delete().eq('group_id', g.id)
+        const { error: delGrpErr } = await admin.from('groups').delete().eq('id', g.id)
+        if (delGrpErr) console.error(`[delete-account] step 6: delete group ${g.id} error:`, delGrpErr)
+        else           console.log(`[delete-account] step 6: group ${g.id} deleted`)
+      }
     }
+    console.log('[delete-account] step 6: groups OK')
   }
 
   // ── 7. Supprimer les memberships ──────────────────────────────────────────
-  await admin.from('group_members').delete().eq('user_id', userId)
+  console.log('[delete-account] step 7: group_members')
+  {
+    const { error } = await admin.from('group_members').delete().eq('user_id', userId)
+    if (error) console.error('[delete-account] step 7: group_members error:', error)
+    else       console.log('[delete-account] step 7: group_members OK')
+  }
 
   // ── 8. Supprimer les amitiés ──────────────────────────────────────────────
-  await admin.from('friendships')
-    .delete()
-    .or(`requester_id.eq.${userId},addressee_id.eq.${userId}`)
+  console.log('[delete-account] step 8: friendships')
+  {
+    const { error } = await admin.from('friendships')
+      .delete()
+      .or(`requester_id.eq.${userId},addressee_id.eq.${userId}`)
+    if (error) console.error('[delete-account] step 8: friendships error:', error)
+    else       console.log('[delete-account] step 8: friendships OK')
+  }
 
   // ── 9. Supprimer les push tokens ──────────────────────────────────────────
+  console.log('[delete-account] step 9: push_tokens')
   try {
-    await admin.from('push_tokens').delete().eq('user_id', userId)
+    const { error } = await admin.from('push_tokens').delete().eq('user_id', userId)
+    if (error) console.error('[delete-account] step 9: push_tokens error (non-fatal):', error)
+    else       console.log('[delete-account] step 9: push_tokens OK')
   } catch {
-    // Table peut ne pas encore exister
+    console.log('[delete-account] step 9: push_tokens table absent (non-fatal)')
   }
 
-  // ── 10. Supprimer le profil ───────────────────────────────────────────────
-  const { error: profileError } = await admin
-    .from('profiles')
-    .delete()
-    .eq('id', userId)
-  if (profileError) {
-    console.error('[delete-account] profile delete error:', profileError)
-    return json({ error: 'Erreur suppression profil: ' + profileError.message }, 500)
+  // ── 10. Anonymiser players.user_id et players.created_by ─────────────────
+  // Ces colonnes peuvent référencer auth.users(id) via FK.
+  // On NE supprime PAS les lignes player pour préserver l'historique des parties.
+  console.log('[delete-account] step 10: anonymize players FK columns')
+  {
+    const { error: e1 } = await admin
+      .from('players')
+      .update({ user_id: null })
+      .eq('user_id', userId)
+    if (e1) console.error('[delete-account] step 10: players.user_id error:', e1)
+    else    console.log('[delete-account] step 10: players.user_id nulled OK')
+
+    const { error: e2 } = await admin
+      .from('players')
+      .update({ created_by: null })
+      .eq('created_by', userId)
+    if (e2) console.error('[delete-account] step 10: players.created_by error:', e2)
+    else    console.log('[delete-account] step 10: players.created_by nulled OK')
   }
 
-  // ── 11. Supprimer l'auth user ─────────────────────────────────────────────
-  const { error: deleteError } = await admin.auth.admin.deleteUser(userId)
-  if (deleteError) {
-    console.error('[delete-account] auth delete error:', deleteError)
-    return json({ error: 'Erreur suppression compte: ' + deleteError.message }, 500)
+  // ── 11. Supprimer le profil ───────────────────────────────────────────────
+  console.log('[delete-account] step 11: delete profile')
+  {
+    const { error: profileError } = await admin
+      .from('profiles')
+      .delete()
+      .eq('id', userId)
+    if (profileError) {
+      console.error('[delete-account] step 11: profile delete error:', profileError)
+      return json({ error: 'Erreur suppression profil: ' + profileError.message }, 500)
+    }
+    console.log('[delete-account] step 11: profile OK')
   }
 
+  // ── 12. Supprimer l'auth user ─────────────────────────────────────────────
+  console.log('[delete-account] step 12: deleteUser')
+  {
+    const { error: deleteError } = await admin.auth.admin.deleteUser(userId)
+    if (deleteError) {
+      console.error('[delete-account] step 12: deleteUser error:', deleteError)
+      return json({ error: 'Erreur suppression compte: ' + deleteError.message }, 500)
+    }
+    console.log('[delete-account] step 12: deleteUser OK')
+  }
+
+  console.log(`[delete-account] DONE userId=${userId}`)
   return json({ success: true })
 })
