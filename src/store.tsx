@@ -40,7 +40,7 @@ interface AppContextType {
   updateGameDate: (gameId: string, newDate: string) => Promise<void>;
   getActiveGame: () => Game | undefined;
   getGameById: (id: string) => Game | undefined;
-  getPlayerById: (id: string) => Player | undefined;
+  getPlayerById: (id: string) => Player;
   getPlayerStats: () => PlayerStats[];
 }
 
@@ -672,8 +672,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
 
   const getPlayerById = useCallback(
-    (id: string): Player | undefined =>
-      data.players.find(p => p.id === id) ?? sessionPlayersRef.current.get(id),
+    (id: string): Player =>
+      data.players.find(p => p.id === id) ??
+      sessionPlayersRef.current.get(id) ??
+      { id, name: 'Utilisateur supprimé', createdAt: '' },
     [data.players]
   );
 
