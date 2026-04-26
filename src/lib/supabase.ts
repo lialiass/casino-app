@@ -34,7 +34,7 @@ export async function authResetPassword(email: string) {
   // avant que React ne charge, pour que HashRouter route correctement
   // et que le SDK lise le code PKCE depuis window.location.search.
   return supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: window.location.origin + '/reset-password',
+    redirectTo: 'https://playpokermanager.fr/reset-password',
   })
 }
 
