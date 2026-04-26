@@ -66,6 +66,10 @@ export interface Profile {
   email: string
   createdAt: string
   photoUrl?: string
+  // Préférences de notifications
+  notifFriends?: boolean
+  notifGames?: boolean
+  notifResults?: boolean
 }
 
 export interface ProfileSearchResult {
