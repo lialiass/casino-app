@@ -680,7 +680,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     (id: string): Player =>
       data.players.find(p => p.id === id) ??
       sessionPlayersRef.current.get(id) ??
-      { id, name: 'Utilisateur supprimé', createdAt: '' },
+      { id, name: 'Joueur non visible', createdAt: '' },
     [data.players]
   );
 
@@ -702,7 +702,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const player: Player =
         data.players.find(p => p.id === playerId) ??
         sessionPlayersRef.current.get(playerId) ??
-        { id: playerId, name: 'Utilisateur supprimé', createdAt: new Date().toISOString() };
+        { id: playerId, name: 'Joueur non visible', createdAt: new Date().toISOString() };
 
       const playerGames = finishedGames.filter(
         g => g.players.some(p => p.playerId === playerId)

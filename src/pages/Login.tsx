@@ -73,8 +73,8 @@ export default function Login() {
       setError('Le mot de passe doit faire au moins 6 caractères.')
       return
     }
-    if (!pseudo.trim()) {
-      setError('Le pseudo est obligatoire.')
+    if (pseudo.trim().length < 2) {
+      setError('Le pseudo doit contenir au moins 2 caractères.')
       return
     }
     setLoading(true)
