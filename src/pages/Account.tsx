@@ -84,7 +84,7 @@ function Toggle({ value, onChange, disabled = false }: { value: boolean; onChang
 
 export default function Account({ embedded = false }: { embedded?: boolean }) {
   const { user, profile, signOut, updateProfile, deleteAccount } = useAuth()
-  const { games } = useStore()
+  const { games, ensureUserPlayer } = useStore()
   const navigate = useNavigate()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -152,7 +152,10 @@ export default function Account({ embedded = false }: { embedded?: boolean }) {
     if (!pseudoValue.trim()) { setPseudoError('Le pseudo ne peut pas être vide.'); return }
     setPseudoError('')
     setSavingPseudo(true)
-    await updateProfile({ pseudo: pseudoValue.trim() })
+    const newPseudo = pseudoValue.trim()
+    await updateProfile({ pseudo: newPseudo })
+    // Sync le player dans le store pour que Home/Podium et Classement soient à jour immédiatement
+    if (user) await ensureUserPlayer({ id: user.id, pseudo: newPseudo, photoUrl: profile?.photoUrl })
     setSavingPseudo(false)
     setEditingPseudo(false)
   }
@@ -162,7 +165,11 @@ export default function Account({ embedded = false }: { embedded?: boolean }) {
     if (!file || !user) return
     setUploadingPhoto(true)
     const url = await uploadProfilePhoto(user.id, file)
-    if (url) await updateProfile({ photoUrl: url })
+    if (url) {
+      await updateProfile({ photoUrl: url })
+      // Sync le player dans le store pour que Home/Podium et Classement soient à jour immédiatement
+      await ensureUserPlayer({ id: user.id, pseudo: profile?.pseudo ?? 'Moi', photoUrl: url })
+    }
     setUploadingPhoto(false)
     e.target.value = ''
   }
