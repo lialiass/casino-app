@@ -192,7 +192,9 @@ export default function Rankings() {
   // ── Mes parties ─────────────────────────────────────────────────────────────
   const [sortBy, setSortBy] = useState<SortKey>('netResult')
 
-  const myStats = getPlayerStats()
+  const allStats = getPlayerStats()
+
+  const myStats = allStats
     .filter(s => s.totalGames > 0)
     .sort((a, b) => {
       if (sortBy === 'netResult')   return b.netResult   - a.netResult
@@ -202,7 +204,7 @@ export default function Rankings() {
       return 0
     })
 
-  const noGamesPlayers = getPlayerStats().filter(s => s.totalGames === 0)
+  const noGamesPlayers = allStats.filter(s => s.totalGames === 0)
 
   // ── Mes amis ─────────────────────────────────────────────────────────────────
   const [friendRows,  setFriendRows]  = useState<FriendRow[]>([])

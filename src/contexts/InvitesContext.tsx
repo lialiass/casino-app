@@ -15,6 +15,8 @@ interface InvitesContextType {
   pendingCount: number
   /** Demandes d'amis reçues uniquement (pour le badge de l'onglet Amis) */
   pendingFriendCount: number
+  /** Amis acceptés (réutilisé par Home pour éviter un fetch dupliqué) */
+  acceptedFriendCount: number
   loading: boolean
   refresh: () => Promise<void>
   refreshFriendCount: () => Promise<void>
@@ -28,6 +30,7 @@ export function InvitesProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth()
   const [invites, setInvites] = useState<GameInviteWithDetails[]>([])
   const [pendingFriendCount, setPendingFriendCount] = useState(0)
+  const [acceptedFriendCount, setAcceptedFriendCount] = useState(0)
   const [loading, setLoading] = useState(false)
   const userIdRef = useRef<string | null>(null)
 
@@ -50,10 +53,12 @@ export function InvitesProvider({ children }: { children: React.ReactNode }) {
     if (!uid) return
     try {
       const friendships = await fetchMyFriendships(uid)
-      const count = friendships.filter(
-        f => f.status === 'pending' && f.addresseeId === uid
-      ).length
-      setPendingFriendCount(count)
+      setPendingFriendCount(
+        friendships.filter(f => f.status === 'pending' && f.addresseeId === uid).length
+      )
+      setAcceptedFriendCount(
+        friendships.filter(f => f.status === 'accepted').length
+      )
     } catch (err) {
       console.error('InvitesContext refreshFriendCount error:', err)
     }
@@ -65,6 +70,7 @@ export function InvitesProvider({ children }: { children: React.ReactNode }) {
     if (!user) {
       setInvites([])
       setPendingFriendCount(0)
+      setAcceptedFriendCount(0)
       return
     }
 
@@ -96,6 +102,7 @@ export function InvitesProvider({ children }: { children: React.ReactNode }) {
         invites,
         pendingCount: invites.length + pendingFriendCount,
         pendingFriendCount,
+        acceptedFriendCount,
         loading,
         refresh,
         refreshFriendCount,

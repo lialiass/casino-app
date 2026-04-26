@@ -323,10 +323,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setIsLoading(false);
       return;
     }
-    // Mode Supabase : NE JAMAIS pré-remplir depuis localStorage.
-    // Réinitialiser explicitement à vide AVANT l'appel async pour garantir
-    // qu'aucune donnée étrangère n'est visible pendant le chargement.
-    setData({ players: [], games: [] });
+    // Mode Supabase : pré-remplir depuis le cache localStorage (clé userId-specific)
+    // pour afficher immédiatement les données de la session précédente pendant
+    // que Supabase charge. Supabase remplacera ces données dès sa réponse.
+    // Aucun risque de données étrangères : la clé est poker_manager_data_{userId}.
+    const cached = loadData(userId);
+    if (cached.players.length > 0 || cached.games.length > 0) {
+      skipNextSaveRef.current = true;
+      setData(cached);
+    }
     setIsLoading(true);
     fetchFromSupabase(true).finally(() => setIsLoading(false));
   }, [userId, fetchFromSupabase]);

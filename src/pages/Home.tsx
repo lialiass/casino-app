@@ -1,25 +1,12 @@
-import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Podium from '../components/Podium'
 import { useStore } from '../store'
-import { useAuth } from '../contexts/AuthContext'
-import { fetchMyFriendships } from '../lib/supabase'
+import { useInvites } from '../contexts/InvitesContext'
 
 export default function Home() {
   const { games } = useStore()
-  const { user } = useAuth()
+  const { acceptedFriendCount } = useInvites()
   const navigate = useNavigate()
-
-  const [friendCount, setFriendCount] = useState(0)
-  const [loadingFriends, setLoadingFriends] = useState(true)
-
-  useEffect(() => {
-    if (!user) { setLoadingFriends(false); return }
-    fetchMyFriendships(user.id).then(friendships => {
-      setFriendCount(friendships.filter(f => f.status === 'accepted').length)
-      setLoadingFriends(false)
-    })
-  }, [user])
 
   const finishedGames = games.filter(g => g.status === 'finished')
   const totalPot = finishedGames.reduce((sum, g) => sum + (g.pot || 0), 0)
@@ -36,7 +23,7 @@ export default function Home() {
         <div className="stats-grid">
           <div className="card" style={{ padding: 12 }}>
             <div className="quick-stat">
-              <div className="value">{loadingFriends ? '—' : friendCount}</div>
+              <div className="value">{acceptedFriendCount}</div>
               <div className="label">Amis</div>
             </div>
           </div>
@@ -78,7 +65,7 @@ export default function Home() {
           </button>
         </div>
 
-        {!loadingFriends && friendCount === 0 && (
+        {acceptedFriendCount === 0 && (
           <div className="alert alert-info" style={{ marginTop: 16 }}>
             Ajoutez des amis pour pouvoir démarrer une partie.
           </div>
