@@ -6,6 +6,9 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
+      // Service worker désactivé : inutile dans Capacitor iOS (WebView native).
+      // Le manifest PWA reste généré pour le déploiement web playpokermanager.fr.
+      disable: true,
       registerType: 'autoUpdate',
       includeAssets: ['icon.svg', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png'],
       manifest: {
