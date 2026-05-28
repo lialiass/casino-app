@@ -53,20 +53,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return
     }
 
+    // true si l'URL contient des tokens de recovery au moment du boot.
+    // Empêche INITIAL_SESSION(null) de court-circuiter PASSWORD_RECOVERY.
+    // Réinitialisé à false dès qu'un événement résout l'attente (dans un sens ou l'autre).
+    let waitingForRecovery = window.location.hash.includes('type=recovery')
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'PASSWORD_RECOVERY') {
         setRecovery(true)
+        waitingForRecovery = false
       } else if (event === 'SIGNED_OUT') {
         setRecovery(false)
+        waitingForRecovery = false
       }
 
       setSession(session)
       setUser(session?.user ?? null)
 
-      // Guard race condition : INITIAL_SESSION (null) fire avant PASSWORD_RECOVERY.
-      // Si les tokens de recovery sont encore dans le hash, on attend PASSWORD_RECOVERY.
-      if (event === 'INITIAL_SESSION' && !session && window.location.hash.includes('type=recovery')) {
-        return
+      if (waitingForRecovery) {
+        if (event === 'INITIAL_SESSION' && !session && window.location.hash.includes('type=recovery')) {
+          // Le SDK n'a pas encore traité les tokens — rester en loading, attendre PASSWORD_RECOVERY.
+          return
+        }
+        // Tout autre événement (token expiré → hash remplacé par #error=..., ou session valide)
+        // lève l'attente et laisse setLoading(false) s'exécuter normalement.
+        waitingForRecovery = false
       }
 
       setLoading(false)
