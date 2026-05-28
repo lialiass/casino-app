@@ -19,9 +19,8 @@ export default defineConfig({
         background_color: '#1a1a2e',
         display: 'standalone',
         orientation: 'portrait',
-        // HashRouter : start_url relatif pour éviter le conflit avec /#/
-        start_url: './',
-        scope: './',
+        start_url: '/',
+        scope: '/',
         icons: [
           {
             src: 'icon-192.png',
@@ -58,5 +57,5 @@ export default defineConfig({
       },
     }),
   ],
-  base: './',
+  base: '/',
 })

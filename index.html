@@ -15,38 +15,6 @@
     <title>Poker Manager</title>
   </head>
   <body>
-    <!--
-      HashRouter utilise le fragment (#) pour le routing.
-      Supabase redirige vers /reset-password?code=xxx (PKCE) ou /confirmed?...
-      Vercel sert index.html pour ces chemins (rewrite /(.*) → /index.html).
-      Ce script transforme les paths Supabase en URLs compatibles HashRouter
-      AVANT que React ne se charge, pour que le SDK lise les query params correctement.
-
-      /reset-password?code=xxx  →  /?code=xxx#/reset-password
-      /confirmed?token_hash=xxx →  /?token_hash=xxx#/confirmed
-    -->
-    <script>
-      (function () {
-        var path = window.location.pathname;
-        var search = window.location.search;
-        var hash = window.location.hash; // inclut le '#' initial
-
-        if (path === '/reset-password') {
-          if (hash && hash.indexOf('access_token') !== -1) {
-            // Implicit flow : /reset-password#access_token=xxx&type=recovery
-            // → /#/reset-password#access_token=xxx&type=recovery
-            // AuthContext détectera le double hash et appellera setSession manuellement.
-            window.location.replace('/#/reset-password' + hash);
-          } else {
-            // PKCE flow : /reset-password?code=xxx
-            // → /?code=xxx#/reset-password  (SDK lit ?code depuis window.location.search)
-            window.location.replace('/' + search + '#/reset-password');
-          }
-        } else if (path === '/confirmed') {
-          window.location.replace('/' + search + '#/confirmed');
-        }
-      })();
-    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

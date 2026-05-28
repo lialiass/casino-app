@@ -1,4 +1,4 @@
-import { HashRouter, Routes, Route, NavLink, useLocation, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, NavLink, useLocation, Navigate } from 'react-router-dom'
 import { useAuth } from './contexts/AuthContext'
 import { useInvites } from './contexts/InvitesContext'
 import Login from './pages/Login'
@@ -117,7 +117,7 @@ function AuthenticatedApp() {
 
 export default function App() {
   return (
-    <HashRouter>
+    <BrowserRouter>
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/confirmed" element={<Confirmed />} />
@@ -131,6 +131,6 @@ export default function App() {
           }
         />
       </Routes>
-    </HashRouter>
+    </BrowserRouter>
   )
 }

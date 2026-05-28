@@ -69,38 +69,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false)
     })
 
-    // ── Double hash (HashRouter + Supabase implicit flow) ─────────────────────
-    // index.html convertit /reset-password#access_token=xxx en :
-    //   /#/reset-password#access_token=xxx&refresh_token=yyy&type=recovery
-    // Le SDK Supabase ne parse pas le 2ème hash — on le fait manuellement.
-    const fullHash = window.location.hash          // "#/reset-password#access_token=..."
-    const secondHashIdx = fullHash.indexOf('#', 1) // position du 2ème '#'
-
-    if (secondHashIdx !== -1) {
-      const tokenFragment = fullHash.slice(secondHashIdx + 1) // "access_token=xxx&..."
-      const params = new URLSearchParams(tokenFragment)
-      const accessToken  = params.get('access_token')
-      const refreshToken = params.get('refresh_token')
-      const type         = params.get('type')
-
-      if (accessToken && refreshToken && type === 'recovery') {
-        // 1. Nettoyer l'URL — supprimer les tokens exposés dans la barre d'adresse
-        window.history.replaceState(null, '', '/#/reset-password')
-        // 2. Marquer comme session recovery AVANT que setLoading(false) soit appelé
-        setRecovery(true)
-        // 3. Restaurer la session Supabase à partir des tokens
-        //    → déclenche SIGNED_IN dans le listener ci-dessus → setLoading(false)
-        supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken })
-          .then(({ error }) => {
-            if (error) {
-              // Token expiré ou invalide — INITIAL_SESSION aura déjà appelé setLoading(false)
-              console.warn('[Auth] setSession failed:', error.message)
-              setRecovery(false)
-            }
-          })
-      }
-    }
-
     return () => subscription.unsubscribe()
   }, [])
 
