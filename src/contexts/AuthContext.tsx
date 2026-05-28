@@ -53,19 +53,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return
     }
 
-    // ── Listener principal ────────────────────────────────────────────────────
-    // Source de vérité pour tous les événements auth (INITIAL_SESSION, SIGNED_IN,
-    // PASSWORD_RECOVERY, SIGNED_OUT, ...). setLoading(false) à chaque event reçu.
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'PASSWORD_RECOVERY') {
         setRecovery(true)
       } else if (event === 'SIGNED_OUT') {
         setRecovery(false)
       }
-      // SIGNED_IN déclenché par setSession ci-dessous ne remet PAS isRecovery à false.
 
       setSession(session)
       setUser(session?.user ?? null)
+
+      // Guard race condition : INITIAL_SESSION (null) fire avant PASSWORD_RECOVERY.
+      // Si les tokens de recovery sont encore dans le hash, on attend PASSWORD_RECOVERY.
+      if (event === 'INITIAL_SESSION' && !session && window.location.hash.includes('type=recovery')) {
+        return
+      }
+
       setLoading(false)
     })
 

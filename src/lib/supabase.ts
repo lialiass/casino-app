@@ -4,7 +4,13 @@ import type { Profile, ProfileSearchResult, Friendship, FriendshipWithProfile, G
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
 
-export const supabase = url && key ? createClient(url, key) : null
+export const supabase = url && key ? createClient(url, key, {
+  auth: {
+    // flowType 'implicit' : les tokens arrivent dans le hash (#access_token=...&type=recovery).
+    // Évite le problème PKCE cross-browser (verifier absent si lien ouvert dans un autre navigateur).
+    flowType: 'implicit',
+  },
+}) : null
 export const hasSupabase = !!supabase
 
 // --- Auth ---
@@ -29,10 +35,7 @@ export async function authSignUp(email: string, password: string, pseudo: string
 
 export async function authResetPassword(email: string) {
   if (!supabase) throw new Error('Supabase non configuré')
-  // Supabase redirige vers /reset-password?code=xxx (PKCE).
-  // Le script dans index.html transforme ce chemin en /?code=xxx#/reset-password
-  // avant que React ne charge, pour que HashRouter route correctement
-  // et que le SDK lise le code PKCE depuis window.location.search.
+  // Supabase redirige vers /reset-password#access_token=xxx&type=recovery (implicit flow).
   return supabase.auth.resetPasswordForEmail(email, {
     redirectTo: 'https://playpokermanager.fr/reset-password',
   })
